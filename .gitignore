@@ -1,0 +1,18 @@
+# Secrets
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Generated stories and audio (local cache)
+data/
+
+# Test outputs
+tests/output/
+
+# OS
+.DS_Store

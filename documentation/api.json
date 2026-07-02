@@ -1,0 +1,246 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "IA notte",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/config": {
+      "get": {
+        "summary": "Get Config",
+        "description": "Return frontend configuration: preset characters and default speed.",
+        "operationId": "get_config_api_config_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Config Api Config Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stories": {
+      "get": {
+        "summary": "List Stories",
+        "description": "List the most recently generated stories, newest first.",
+        "operationId": "list_stories_api_stories_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response List Stories Api Stories Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create Story",
+        "description": "Generate a story and its narration for the given character.\n\nRaises:\n    HTTPException: 503 if the API key is missing, 502 if generation fails.",
+        "operationId": "create_story_api_stories_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Create Story Api Stories Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stories/{story_id}": {
+      "get": {
+        "summary": "Get Story",
+        "description": "Return a cached story record.\n\nRaises:\n    HTTPException: 404 if the story does not exist.",
+        "operationId": "get_story_api_stories__story_id__get",
+        "parameters": [
+          {
+            "name": "story_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Story Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Story Api Stories  Story Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stories/{story_id}/audio": {
+      "get": {
+        "summary": "Get Story Audio",
+        "description": "Stream the WAV narration of a cached story.\n\nRaises:\n    HTTPException: 404 if the audio does not exist.",
+        "operationId": "get_story_audio_api_stories__story_id__audio_get",
+        "parameters": [
+          {
+            "name": "story_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Story Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "StoryRequest": {
+        "properties": {
+          "character": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Character"
+          }
+        },
+        "type": "object",
+        "required": [
+          "character"
+        ],
+        "title": "StoryRequest",
+        "description": "Request body for story creation."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

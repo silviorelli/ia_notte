@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0c0a09">
+  <title>IA notte</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    input[type="range"] { accent-color: #d97706; }
+    audio { border-radius: 0.75rem; width: 100%; }
+  </style>
+</head>
+<body class="bg-stone-950 text-amber-50 min-h-screen antialiased">
+  <main class="max-w-md mx-auto px-4 py-6 pb-16">
+
+    <header class="flex items-center gap-3 mb-8">
+      <svg class="w-9 h-9 text-amber-300" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+      <h1 class="text-3xl font-bold text-amber-200 tracking-wide">IA notte</h1>
+    </header>
+
+    <section id="view-picker">
+      <h2 class="text-lg text-amber-100/80 mb-3">Scegli il personaggio</h2>
+      <div id="preset-grid" class="grid grid-cols-2 gap-3 mb-8"></div>
+
+      <label for="custom-character" class="block text-lg text-amber-100/80 mb-2">
+        Oppure scrivilo tu
+      </label>
+      <input id="custom-character" type="text" autocomplete="off" enterkeyhint="go"
+             placeholder="Es. un draghetto gentile"
+             class="w-full rounded-2xl bg-stone-900 border border-stone-700 px-5 py-4 text-xl
+                    text-amber-50 placeholder-stone-500 mb-3
+                    focus:outline-none focus:border-amber-600">
+      <button id="generate-btn"
+              class="w-full rounded-2xl bg-amber-700 active:bg-amber-600 px-5 py-5 text-xl
+                     font-semibold text-amber-50 shadow-lg">
+        Genera storia
+      </button>
+
+      <section id="recent-section" class="mt-10 hidden">
+        <h2 class="text-lg text-amber-100/80 mb-3">Storie recenti</h2>
+        <div id="recent-list" class="flex flex-col gap-2"></div>
+      </section>
+    </section>
+
+    <section id="view-loading" class="hidden text-center py-16">
+      <svg class="w-20 h-20 mx-auto mb-6 text-amber-300 animate-pulse" viewBox="0 0 24 24"
+           fill="currentColor" aria-hidden="true">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+      <p id="loading-message" class="text-2xl text-amber-100"></p>
+      <p class="text-amber-100/50 mt-3 text-lg">Può volerci un paio di minuti...</p>
+    </section>
+
+    <section id="view-error" class="hidden text-center py-12">
+      <p id="error-message" class="text-xl text-red-300 mb-8"></p>
+      <button id="retry-btn"
+              class="w-full rounded-2xl bg-amber-700 active:bg-amber-600 px-5 py-5 text-xl
+                     font-semibold text-amber-50 mb-3">
+        Riprova
+      </button>
+      <button id="error-back-btn"
+              class="w-full rounded-2xl bg-stone-800 active:bg-stone-700 px-5 py-4 text-lg
+                     text-amber-100 border border-stone-700">
+        Torna all'inizio
+      </button>
+    </section>
+
+    <section id="view-story" class="hidden">
+      <h2 id="story-title" class="text-2xl font-bold text-amber-200 mb-5"></h2>
+
+      <div class="bg-stone-900 rounded-2xl p-5 mb-6 border border-stone-800">
+        <div class="flex justify-center mb-5">
+          <button id="play-btn" aria-label="Riproduci o metti in pausa"
+                  class="w-24 h-24 rounded-full bg-amber-600 active:bg-amber-500 shadow-lg
+                         flex items-center justify-center text-stone-950">
+            <svg id="icon-play" class="w-12 h-12 ml-1" viewBox="0 0 24 24" fill="currentColor"
+                 aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+            <svg id="icon-pause" class="w-12 h-12 hidden" viewBox="0 0 24 24" fill="currentColor"
+                 aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+          </button>
+        </div>
+
+        <audio id="audio" controls preload="metadata" class="mb-5"></audio>
+
+        <div class="flex items-center justify-between mb-2">
+          <label for="speed-slider" class="text-lg text-amber-100/80">Velocità</label>
+          <span id="speed-label" class="text-2xl font-semibold text-amber-200"></span>
+        </div>
+        <input id="speed-slider" type="range" min="0.6" max="1.0" step="0.05"
+               class="w-full h-10">
+      </div>
+
+      <article id="story-text"
+               class="text-xl leading-relaxed text-amber-50/90 whitespace-pre-line mb-8"></article>
+
+      <div class="flex flex-col gap-3">
+        <button id="new-story-btn"
+                class="w-full rounded-2xl bg-amber-700 active:bg-amber-600 px-5 py-5 text-xl
+                       font-semibold text-amber-50">
+          Nuova storia
+        </button>
+        <button id="back-btn"
+                class="w-full rounded-2xl bg-stone-800 active:bg-stone-700 px-5 py-4 text-lg
+                       text-amber-100 border border-stone-700">
+          Cambia personaggio
+        </button>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    "use strict";
+
+    const el = (id) => document.getElementById(id);
+    const VIEWS = ["picker", "loading", "error", "story"];
+    const SPEED_KEY = "ia-notte-speed";
+    const state = { character: null };
+
+    function showView(name) {
+      VIEWS.forEach((v) => el("view-" + v).classList.toggle("hidden", v !== name));
+      window.scrollTo(0, 0);
+    }
+
+    async function fetchJson(url, options) {
+      const response = await fetch(url, options);
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail || "Errore di comunicazione con il server");
+      }
+      return response.json();
+    }
+
+    function bigButton(label, onClick) {
+      const button = document.createElement("button");
+      button.textContent = label;
+      button.className = "rounded-2xl bg-stone-800 active:bg-amber-800 border border-stone-700 " +
+        "px-4 py-6 text-xl font-semibold text-amber-100 shadow";
+      button.addEventListener("click", onClick);
+      return button;
+    }
+
+    function renderPresets(characters) {
+      const grid = el("preset-grid");
+      grid.replaceChildren(...characters.map((c) => bigButton(c, () => generate(c))));
+    }
+
+    async function loadRecent() {
+      try {
+        const stories = await fetchJson("/api/stories");
+        el("recent-section").classList.toggle("hidden", stories.length === 0);
+        const formatter = new Intl.DateTimeFormat("it-IT",
+          { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+        el("recent-list").replaceChildren(...stories.map((story) => {
+          const button = document.createElement("button");
+          button.className = "w-full rounded-xl bg-stone-900 active:bg-stone-800 border " +
+            "border-stone-800 px-4 py-4 text-left flex justify-between items-center gap-3";
+          const name = document.createElement("span");
+          name.textContent = story.character;
+          name.className = "text-lg font-semibold text-amber-100";
+          const date = document.createElement("span");
+          date.textContent = formatter.format(new Date(story.created_at));
+          date.className = "text-sm text-amber-100/50 shrink-0";
+          button.append(name, date);
+          button.addEventListener("click", () => openStory(story.id));
+          return button;
+        }));
+      } catch (error) {
+        console.error("Impossibile caricare le storie recenti:", error);
+      }
+    }
+
+    async function generate(character) {
+      state.character = character;
+      el("loading-message").textContent = "Sto preparando la storia di " + character + "...";
+      showView("loading");
+      try {
+        const record = await fetchJson("/api/stories", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ character }),
+        });
+        showStory(record);
+        loadRecent();
+      } catch (error) {
+        el("error-message").textContent = error.message;
+        showView("error");
+      }
+    }
+
+    async function openStory(id) {
+      try {
+        showStory(await fetchJson("/api/stories/" + id));
+      } catch (error) {
+        el("error-message").textContent = error.message;
+        showView("error");
+      }
+    }
+
+    function showStory(record) {
+      state.character = record.character;
+      el("story-title").textContent = "La storia di " + record.character;
+      el("story-text").textContent = record.story;
+      const audio = el("audio");
+      audio.src = record.audio_url;
+      applySpeed();
+      showView("story");
+    }
+
+    function applySpeed() {
+      const value = parseFloat(el("speed-slider").value);
+      el("speed-label").textContent = value.toFixed(2).replace(".", ",") + "x";
+      const audio = el("audio");
+      audio.playbackRate = value;
+      audio.defaultPlaybackRate = value;
+      localStorage.setItem(SPEED_KEY, String(value));
+    }
+
+    function initAudioControls() {
+      const audio = el("audio");
+      el("play-btn").addEventListener("click", () => {
+        if (audio.paused) { audio.play(); } else { audio.pause(); }
+      });
+      const setIcon = (playing) => {
+        el("icon-play").classList.toggle("hidden", playing);
+        el("icon-pause").classList.toggle("hidden", !playing);
+      };
+      audio.addEventListener("play", () => setIcon(true));
+      audio.addEventListener("pause", () => setIcon(false));
+      audio.addEventListener("ended", () => setIcon(false));
+      audio.addEventListener("loadedmetadata", applySpeed);
+      el("speed-slider").addEventListener("input", applySpeed);
+    }
+
+    function initButtons() {
+      const customInput = el("custom-character");
+      const generateCustom = () => {
+        const character = customInput.value.trim();
+        if (character) { generate(character); }
+      };
+      el("generate-btn").addEventListener("click", generateCustom);
+      customInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") { generateCustom(); }
+      });
+      el("new-story-btn").addEventListener("click", () => generate(state.character));
+      el("retry-btn").addEventListener("click", () => {
+        if (state.character) { generate(state.character); } else { showView("picker"); }
+      });
+      const goHome = () => {
+        el("audio").pause();
+        showView("picker");
+      };
+      el("back-btn").addEventListener("click", goHome);
+      el("error-back-btn").addEventListener("click", goHome);
+    }
+
+    async function init() {
+      initAudioControls();
+      initButtons();
+      let defaultRate = 0.85;
+      try {
+        const cfg = await fetchJson("/api/config");
+        defaultRate = cfg.default_playback_rate;
+        renderPresets(cfg.characters);
+      } catch (error) {
+        console.error("Impossibile caricare la configurazione:", error);
+      }
+      const saved = parseFloat(localStorage.getItem(SPEED_KEY));
+      const speed = Number.isFinite(saved) ? Math.min(1.0, Math.max(0.6, saved)) : defaultRate;
+      el("speed-slider").value = String(speed);
+      applySpeed();
+      loadRecent();
+    }
+
+    init();
+  </script>
+</body>
+</html>
