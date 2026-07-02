@@ -89,7 +89,7 @@
           <label for="speed-slider" class="text-lg text-amber-100/80">Velocità</label>
           <span id="speed-label" class="text-2xl font-semibold text-amber-200"></span>
         </div>
-        <input id="speed-slider" type="range" min="0.6" max="1.0" step="0.05"
+        <input id="speed-slider" type="range" min="0.8" max="1.4" step="0.1"
                class="w-full h-10">
       </div>
 
@@ -212,7 +212,7 @@
 
     function applySpeed() {
       const value = parseFloat(el("speed-slider").value);
-      el("speed-label").textContent = value.toFixed(2).replace(".", ",") + "x";
+      el("speed-label").textContent = value.toFixed(1).replace(".", ",") + "x";
       const audio = el("audio");
       audio.playbackRate = value;
       audio.defaultPlaybackRate = value;
@@ -260,7 +260,7 @@
     async function init() {
       initAudioControls();
       initButtons();
-      let defaultRate = 0.85;
+      let defaultRate = 1.0;
       try {
         const cfg = await fetchJson("/api/config");
         defaultRate = cfg.default_playback_rate;
@@ -269,7 +269,8 @@
         console.error("Impossibile caricare la configurazione:", error);
       }
       const saved = parseFloat(localStorage.getItem(SPEED_KEY));
-      const speed = Number.isFinite(saved) ? Math.min(1.0, Math.max(0.6, saved)) : defaultRate;
+      const clamped = Math.min(1.4, Math.max(0.8, saved));
+      const speed = Number.isFinite(saved) ? Math.round(clamped * 10) / 10 : defaultRate;
       el("speed-slider").value = String(speed);
       applySpeed();
       loadRecent();

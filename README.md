@@ -35,7 +35,7 @@ Poi apri http://localhost:8000 — oppure, dal telefono sulla stessa rete Wi-Fi,
    e tocca "Genera storia".
 2. Attendi la generazione (testo + audio, fino a un minuto).
 3. Ascolta con il pulsante grande play/pausa; regola la velocità di lettura con il
-   cursore (0,60x - 1,00x, predefinita 0,85x). La velocità agisce subito, senza
+   cursore (0,8x - 1,4x, predefinita 1,0x). La velocità agisce subito, senza
    rigenerare l'audio, e viene ricordata tra una sessione e l'altra.
 4. "Nuova storia" rigenera con lo stesso personaggio; "Storie recenti" fa riascoltare
    le storie già generate senza consumare chiamate API.

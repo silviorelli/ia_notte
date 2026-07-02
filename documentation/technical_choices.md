@@ -39,7 +39,7 @@
   and the PCM concatenated before wrapping, so arbitrarily long stories
   produce one seamless audio file.
 - Playback speed is a pure frontend concern (`audioElement.playbackRate`),
-  so one generated audio serves every speed in the 0.6x-1.0x range.
+  so one generated audio serves every speed in the 0.8x-1.4x range.
 
 ## Caching
 
