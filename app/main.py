@@ -1,5 +1,6 @@
 """FastAPI application: story generation endpoints and static frontend."""
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -10,7 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app import config
-from app.gemini import GeminiClient, GeminiError, GeminiSettings
+from app.gemini import GeminiClient, GeminiError, GeminiSettings, split_text
+from app.narration import narrate_story
 from app.prompts import TTS_STYLE_INSTRUCTION, build_story_prompt
 from app.storage import StoryStore
 
@@ -39,11 +41,16 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         )
     )
     application.state.store = StoryStore(config.STORIES_DIR)
+    application.state.store.cleanup()
+    application.state.narrations = set()
     yield
+    for task in application.state.narrations:
+        task.cancel()
+    await asyncio.gather(*application.state.narrations, return_exceptions=True)
     await application.state.gemini.aclose()
 
 
-app = FastAPI(title="IA notte", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="IA notte", version="0.2.0", lifespan=lifespan)
 
 
 def _public_record(record: dict) -> dict:
@@ -62,7 +69,11 @@ def get_config() -> dict:
 
 @app.post("/api/stories")
 async def create_story(payload: StoryRequest, request: Request) -> dict:
-    """Generate a story and its narration for the given character.
+    """Generate a story and start its narration in the background.
+
+    Returns as soon as the story text is ready; audio chunks are synthesized
+    concurrently by a background task and exposed via the record's
+    ``chunks_ready`` counter and the part audio endpoint.
 
     Raises:
         HTTPException: 503 if the API key is missing, 502 if generation fails.
@@ -79,14 +90,22 @@ async def create_story(payload: StoryRequest, request: Request) -> dict:
     store: StoryStore = request.app.state.store
     try:
         story = await gemini.generate_story(build_story_prompt(character))
-        audio = await gemini.synthesize_speech(story, TTS_STYLE_INSTRUCTION)
     except GeminiError as exc:
         logger.error("Story generation failed for %r: %s", character, exc)
         raise HTTPException(
             status_code=502,
             detail="La generazione non è riuscita, riprova tra qualche istante",
         ) from exc
-    return _public_record(store.save(character, story, audio))
+    chunks = split_text(story, config.TTS_CHUNK_PLAN)
+    record = store.save(character, story, chunks_total=len(chunks))
+    task = asyncio.create_task(
+        narrate_story(
+            gemini, store, record["id"], chunks, TTS_STYLE_INSTRUCTION, config.TTS_CONCURRENCY
+        )
+    )
+    request.app.state.narrations.add(task)
+    task.add_done_callback(request.app.state.narrations.discard)
+    return _public_record(record)
 
 
 @app.get("/api/stories")
@@ -112,15 +131,29 @@ def get_story(story_id: str, request: Request) -> dict:
 
 @app.get("/api/stories/{story_id}/audio")
 def get_story_audio(story_id: str, request: Request) -> FileResponse:
-    """Stream the WAV narration of a cached story.
+    """Stream the complete WAV narration of a cached story.
 
     Raises:
-        HTTPException: 404 if the audio does not exist.
+        HTTPException: 404 if the audio does not exist (yet).
     """
     store: StoryStore = request.app.state.store
     path = store.audio_path(story_id)
     if path is None:
         raise HTTPException(status_code=404, detail="Audio non trovato")
+    return FileResponse(path, media_type="audio/wav")
+
+
+@app.get("/api/stories/{story_id}/audio/{part}")
+def get_story_audio_part(story_id: str, part: int, request: Request) -> FileResponse:
+    """Stream one narration chunk of a story being generated.
+
+    Raises:
+        HTTPException: 404 if the part does not exist (yet).
+    """
+    store: StoryStore = request.app.state.store
+    path = store.part_path(story_id, part)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Blocco audio non trovato")
     return FileResponse(path, media_type="audio/wav")
 
 

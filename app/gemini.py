@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 MAX_ATTEMPTS = 3
 RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
-TTS_CHUNK_MAX_CHARS = 3500
 DEFAULT_SAMPLE_RATE = 24000
 _RATE_PATTERN = re.compile(r"rate=(\d+)")
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
@@ -101,52 +100,36 @@ class GeminiClient:
             raise GeminiError("Model returned an empty story")
         return text
 
-    async def synthesize_speech(self, text: str, style_instruction: str) -> bytes:
-        """Convert story text to spoken audio.
-
-        Long texts are split into chunks at paragraph/sentence boundaries;
-        the resulting PCM streams are concatenated into a single WAV file.
+    async def synthesize_chunk(self, text: str, style_instruction: str) -> tuple[bytes, int]:
+        """Convert one chunk of text to spoken audio.
 
         Args:
-            text: Story text to read aloud.
-            style_instruction: Reading-style instruction prepended to each chunk.
+            text: Text chunk to read aloud.
+            style_instruction: Reading-style instruction prepended to the chunk.
 
         Returns:
-            WAV audio bytes (16-bit mono PCM).
+            Tuple of (raw 16-bit mono PCM bytes, sample rate in Hz).
 
         Raises:
-            GeminiError: If all models fail or a response contains no audio.
+            GeminiError: If all models fail or the response contains no audio.
         """
-        pcm = bytearray()
-        sample_rate = DEFAULT_SAMPLE_RATE
-        chunks = _split_text(text, TTS_CHUNK_MAX_CHARS)
-        for index, chunk in enumerate(chunks, start=1):
-            logger.info(
-                "Synthesizing audio chunk %d/%d (%d chars), this can take a few minutes",
-                index,
-                len(chunks),
-                len(chunk),
-            )
-            payload = {
-                "contents": [{"parts": [{"text": style_instruction + chunk}]}],
-                "generationConfig": {
-                    "responseModalities": ["AUDIO"],
-                    "speechConfig": {
-                        "languageCode": self._settings.language_code,
-                        "voiceConfig": {
-                            "prebuiltVoiceConfig": {"voiceName": self._settings.tts_voice}
-                        },
-                    },
+        payload = {
+            "contents": [{"parts": [{"text": style_instruction + text}]}],
+            "generationConfig": {
+                "responseModalities": ["AUDIO"],
+                "speechConfig": {
+                    "languageCode": self._settings.language_code,
+                    "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": self._settings.tts_voice}},
                 },
-            }
-            data = await self._generate_content(self._settings.tts_models, payload)
-            try:
-                inline = data["candidates"][0]["content"]["parts"][0]["inlineData"]
-                pcm += base64.b64decode(inline["data"])
-            except (KeyError, IndexError, TypeError) as exc:
-                raise GeminiError(f"Unexpected TTS response shape: {exc}") from exc
-            sample_rate = _parse_sample_rate(inline.get("mimeType", ""))
-        return _pcm_to_wav(bytes(pcm), sample_rate)
+            },
+        }
+        data = await self._generate_content(self._settings.tts_models, payload)
+        try:
+            inline = data["candidates"][0]["content"]["parts"][0]["inlineData"]
+            pcm = base64.b64decode(inline["data"])
+        except (KeyError, IndexError, TypeError) as exc:
+            raise GeminiError(f"Unexpected TTS response shape: {exc}") from exc
+        return pcm, _parse_sample_rate(inline.get("mimeType", ""))
 
     async def _generate_content(self, models: tuple[str, ...], payload: dict) -> dict:
         """POST to ``generateContent``, with retries and model fallback.
@@ -204,40 +187,46 @@ class GeminiClient:
         raise GeminiError(f"All models failed ({', '.join(models)})") from last_error
 
 
-def _split_text(text: str, max_chars: int) -> list[str]:
-    """Split text into chunks of at most ``max_chars`` characters.
+def split_text(text: str, chunk_plan: tuple[int, ...]) -> list[str]:
+    """Split text into chunks sized according to ``chunk_plan``.
 
-    Prefers paragraph boundaries, then sentence boundaries, then a hard cut
-    for pathological single sentences.
+    ``chunk_plan[i]`` is the max chars of chunk ``i``; the last value repeats
+    for all remaining chunks. Chunks break at paragraph boundaries when
+    possible, then sentence boundaries, then a hard cut for pathological
+    single sentences. A small first budget keeps time-to-first-audio low.
 
     Args:
         text: Text to split.
-        max_chars: Maximum chunk length in characters.
+        chunk_plan: Per-chunk maximum lengths in characters (all > 0).
 
     Returns:
         Non-empty list of chunks in original order.
     """
-    if len(text) <= max_chars:
-        return [text]
-    pieces: list[str] = []
-    for paragraph in filter(str.strip, _PARAGRAPH_BOUNDARY.split(text)):
-        if len(paragraph) <= max_chars:
-            pieces.append(paragraph)
-            continue
-        for sentence in _SENTENCE_BOUNDARY.split(paragraph):
-            pieces.extend(sentence[i : i + max_chars] for i in range(0, len(sentence), max_chars))
     chunks: list[str] = []
     current = ""
-    for piece in pieces:
-        candidate = f"{current}\n\n{piece}" if current else piece
-        if len(candidate) > max_chars:
+
+    def budget() -> int:
+        return chunk_plan[min(len(chunks), len(chunk_plan) - 1)]
+
+    def flush() -> None:
+        nonlocal current
+        if current:
             chunks.append(current)
-            current = piece
-        else:
-            current = candidate
-    if current:
-        chunks.append(current)
-    return chunks
+            current = ""
+
+    for paragraph in filter(str.strip, _PARAGRAPH_BOUNDARY.split(text)):
+        for index, sentence in enumerate(_SENTENCE_BOUNDARY.split(paragraph)):
+            separator = "\n\n" if index == 0 else " "
+            pieces = [sentence[i : i + budget()] for i in range(0, len(sentence), budget())]
+            for piece in pieces:
+                candidate = f"{current}{separator}{piece}" if current else piece
+                if len(candidate) > budget():
+                    flush()
+                    current = piece
+                else:
+                    current = candidate
+    flush()
+    return chunks or [text]
 
 
 def _parse_sample_rate(mime_type: str) -> int:
@@ -253,7 +242,7 @@ def _parse_sample_rate(mime_type: str) -> int:
     return int(match.group(1)) if match else DEFAULT_SAMPLE_RATE
 
 
-def _pcm_to_wav(pcm: bytes, sample_rate: int) -> bytes:
+def pcm_to_wav(pcm: bytes, sample_rate: int) -> bytes:
     """Wrap raw 16-bit mono PCM data in a WAV container.
 
     Args:

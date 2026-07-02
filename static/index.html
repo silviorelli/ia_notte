@@ -51,7 +51,7 @@
         <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
       </svg>
       <p id="loading-message" class="text-2xl text-amber-100"></p>
-      <p class="text-amber-100/50 mt-3 text-lg">Può volerci un paio di minuti...</p>
+      <p class="text-amber-100/50 mt-3 text-lg">Pochi secondi...</p>
     </section>
 
     <section id="view-error" class="hidden text-center py-12">
@@ -72,16 +72,18 @@
       <h2 id="story-title" class="text-2xl font-bold text-amber-200 mb-5"></h2>
 
       <div class="bg-stone-900 rounded-2xl p-5 mb-6 border border-stone-800">
-        <div class="flex justify-center mb-5">
+        <div class="flex justify-center mb-2">
           <button id="play-btn" aria-label="Riproduci o metti in pausa"
                   class="w-24 h-24 rounded-full bg-amber-600 active:bg-amber-500 shadow-lg
-                         flex items-center justify-center text-stone-950">
+                         flex items-center justify-center text-stone-950
+                         disabled:opacity-40 disabled:active:bg-amber-600">
             <svg id="icon-play" class="w-12 h-12 ml-1" viewBox="0 0 24 24" fill="currentColor"
                  aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
             <svg id="icon-pause" class="w-12 h-12 hidden" viewBox="0 0 24 24" fill="currentColor"
                  aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
           </button>
         </div>
+        <p id="voice-status" class="text-center text-amber-100/60 text-base mb-4 min-h-6"></p>
 
         <audio id="audio" controls preload="metadata" class="mb-5"></audio>
 
@@ -118,7 +120,16 @@
     const el = (id) => document.getElementById(id);
     const VIEWS = ["picker", "loading", "error", "story"];
     const SPEED_KEY = "ia-notte-speed";
-    const state = { character: null };
+    const POLL_INTERVAL_MS = 2000;
+    const state = {
+      character: null,
+      record: null,
+      mode: "full",          // "full": file completo | "parts": blocchi progressivi
+      currentPart: 0,
+      waitingNext: false,    // playback fermo in attesa del blocco successivo
+      playbackStarted: false,
+      pollTimer: null,
+    };
 
     function showView(name) {
       VIEWS.forEach((v) => el("view-" + v).classList.toggle("hidden", v !== name));
@@ -159,7 +170,7 @@
           button.className = "w-full rounded-xl bg-stone-900 active:bg-stone-800 border " +
             "border-stone-800 px-4 py-4 text-left flex justify-between items-center gap-3";
           const name = document.createElement("span");
-          name.textContent = story.character;
+          name.textContent = story.character + (story.status === "error" ? " (senza voce)" : "");
           name.className = "text-lg font-semibold text-amber-100";
           const date = document.createElement("span");
           date.textContent = formatter.format(new Date(story.created_at));
@@ -175,7 +186,7 @@
 
     async function generate(character) {
       state.character = character;
-      el("loading-message").textContent = "Sto preparando la storia di " + character + "...";
+      el("loading-message").textContent = "Sto scrivendo la storia di " + character + "...";
       showView("loading");
       try {
         const record = await fetchJson("/api/stories", {
@@ -200,14 +211,138 @@
       }
     }
 
+    function partUrl(record, index) {
+      return "/api/stories/" + record.id + "/audio/" + index;
+    }
+
+    function stopPolling() {
+      if (state.pollTimer) {
+        clearInterval(state.pollTimer);
+        state.pollTimer = null;
+      }
+    }
+
+    function setVoiceStatus(message) {
+      el("voice-status").textContent = message;
+    }
+
+    function setPlayEnabled(enabled) {
+      el("play-btn").disabled = !enabled;
+    }
+
     function showStory(record) {
+      stopPolling();
+      const audio = el("audio");
+      audio.pause();
+      audio.removeAttribute("src");
       state.character = record.character;
+      state.record = record;
+      state.currentPart = 0;
+      state.waitingNext = false;
+      state.playbackStarted = false;
       el("story-title").textContent = "La storia di " + record.character;
       el("story-text").textContent = record.story;
-      const audio = el("audio");
-      audio.src = record.audio_url;
-      applySpeed();
       showView("story");
+
+      if (record.status === "ready") {
+        state.mode = "full";
+        audio.src = record.audio_url;
+        applySpeed();
+        setPlayEnabled(true);
+        setVoiceStatus("");
+        return;
+      }
+      if (record.status === "error") {
+        state.mode = "full";
+        setPlayEnabled(false);
+        setVoiceStatus("La voce non è disponibile per questa storia.");
+        return;
+      }
+      state.mode = "parts";
+      if (record.chunks_ready > 0) {
+        loadPart(0, false);
+      } else {
+        setPlayEnabled(false);
+        setVoiceStatus("Sto preparando la voce...");
+      }
+      state.pollTimer = setInterval(pollRecord, POLL_INTERVAL_MS);
+    }
+
+    function loadPart(index, autoplay) {
+      const audio = el("audio");
+      state.currentPart = index;
+      audio.src = partUrl(state.record, index);
+      applySpeed();
+      setPlayEnabled(true);
+      updateVoiceProgress();
+      if (autoplay) {
+        audio.play().catch((error) => {
+          console.error("Riproduzione automatica bloccata:", error);
+        });
+      }
+    }
+
+    function updateVoiceProgress() {
+      const record = state.record;
+      if (record.status === "generating" && state.mode === "parts") {
+        setVoiceStatus("Voce: parte " + (state.currentPart + 1) + " di " + record.chunks_total +
+          (state.waitingNext ? " (preparo la prossima...)" : ""));
+      } else {
+        setVoiceStatus("");
+      }
+    }
+
+    async function pollRecord() {
+      if (!state.record) { return; }
+      let record;
+      try {
+        record = await fetchJson("/api/stories/" + state.record.id);
+      } catch (error) {
+        console.error("Aggiornamento stato non riuscito:", error);
+        return;
+      }
+      state.record = record;
+      const audio = el("audio");
+
+      if (state.mode === "parts" && record.chunks_ready > 0 && !audio.getAttribute("src")) {
+        loadPart(0, false);
+      }
+      if (state.waitingNext && state.currentPart + 1 < record.chunks_ready) {
+        state.waitingNext = false;
+        loadPart(state.currentPart + 1, true);
+      }
+      updateVoiceProgress();
+
+      if (record.status === "generating") { return; }
+      stopPolling();
+      if (record.status === "ready") {
+        if (state.mode === "parts" && !state.playbackStarted) {
+          state.mode = "full";
+          audio.src = record.audio_url;
+          applySpeed();
+          setPlayEnabled(true);
+        }
+        setVoiceStatus("");
+        loadRecent();
+      } else if (record.status === "error") {
+        setVoiceStatus(record.chunks_ready > 0
+          ? "La voce si è interrotta: è disponibile solo l'inizio."
+          : "La voce non è disponibile, ma puoi leggere la storia.");
+        if (record.chunks_ready === 0) { setPlayEnabled(false); }
+        loadRecent();
+      }
+    }
+
+    function onAudioEnded() {
+      if (state.mode !== "parts" || !state.record) { return; }
+      const next = state.currentPart + 1;
+      if (next >= state.record.chunks_total) { return; }
+      if (next < state.record.chunks_ready) {
+        loadPart(next, true);
+      } else if (state.record.status === "generating") {
+        state.waitingNext = true;
+        updateVoiceProgress();
+      }
     }
 
     function applySpeed() {
@@ -228,9 +363,15 @@
         el("icon-play").classList.toggle("hidden", playing);
         el("icon-pause").classList.toggle("hidden", !playing);
       };
-      audio.addEventListener("play", () => setIcon(true));
+      audio.addEventListener("play", () => {
+        state.playbackStarted = true;
+        setIcon(true);
+      });
       audio.addEventListener("pause", () => setIcon(false));
-      audio.addEventListener("ended", () => setIcon(false));
+      audio.addEventListener("ended", () => {
+        setIcon(false);
+        onAudioEnded();
+      });
       audio.addEventListener("loadedmetadata", applySpeed);
       el("speed-slider").addEventListener("input", applySpeed);
     }
@@ -250,6 +391,7 @@
         if (state.character) { generate(state.character); } else { showView("picker"); }
       });
       const goHome = () => {
+        stopPolling();
         el("audio").pause();
         showView("picker");
       };

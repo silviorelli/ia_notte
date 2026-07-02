@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "IA notte",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "paths": {
     "/api/config": {
@@ -51,7 +51,7 @@
       },
       "post": {
         "summary": "Create Story",
-        "description": "Generate a story and its narration for the given character.\n\nRaises:\n    HTTPException: 503 if the API key is missing, 502 if generation fails.",
+        "description": "Generate a story and start its narration in the background.\n\nReturns as soon as the story text is ready; audio chunks are synthesized\nconcurrently by a background task and exposed via the record's\n``chunks_ready`` counter and the part audio endpoint.\n\nRaises:\n    HTTPException: 503 if the API key is missing, 502 if generation fails.",
         "operationId": "create_story_api_stories_post",
         "requestBody": {
           "content": {
@@ -134,7 +134,7 @@
     "/api/stories/{story_id}/audio": {
       "get": {
         "summary": "Get Story Audio",
-        "description": "Stream the WAV narration of a cached story.\n\nRaises:\n    HTTPException: 404 if the audio does not exist.",
+        "description": "Stream the complete WAV narration of a cached story.\n\nRaises:\n    HTTPException: 404 if the audio does not exist (yet).",
         "operationId": "get_story_audio_api_stories__story_id__audio_get",
         "parameters": [
           {
@@ -144,6 +144,53 @@
             "schema": {
               "type": "string",
               "title": "Story Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stories/{story_id}/audio/{part}": {
+      "get": {
+        "summary": "Get Story Audio Part",
+        "description": "Stream one narration chunk of a story being generated.\n\nRaises:\n    HTTPException: 404 if the part does not exist (yet).",
+        "operationId": "get_story_audio_part_api_stories__story_id__audio__part__get",
+        "parameters": [
+          {
+            "name": "story_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Story Id"
+            }
+          },
+          {
+            "name": "part",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Part"
             }
           }
         ],

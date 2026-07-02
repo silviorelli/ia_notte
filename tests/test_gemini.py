@@ -1,9 +1,9 @@
-"""Tests for the Gemini client: retries, fallbacks, chunking and WAV output."""
+"""Tests for the Gemini client: retries, fallbacks, chunk synthesis and splitting."""
 
 import httpx
 import pytest
 
-from app.gemini import GeminiClient, GeminiError, GeminiSettings, _split_text
+from app.gemini import GeminiClient, GeminiError, GeminiSettings, split_text
 from tests.conftest import audio_response, text_response
 
 pytestmark = pytest.mark.anyio
@@ -78,49 +78,37 @@ async def test_generate_story_raises_after_all_retries():
     await client.aclose()
 
 
-async def test_synthesize_speech_returns_wav():
+async def test_synthesize_chunk_returns_pcm_and_rate():
     pcm = b"\x01\x02" * 100
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return audio_response(pcm)
-
-    client = make_client(handler)
-    wav = await client.synthesize_speech("Una piccola storia.", "Leggi piano. ")
-    assert wav.startswith(b"RIFF")
-    assert b"WAVE" in wav[:16]
-    assert pcm in wav
-    await client.aclose()
-
-
-async def test_synthesize_speech_concatenates_chunks():
     requests_seen = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests_seen.append(request.read())
-        return audio_response(b"\x0a\x0b" * 10)
+        return audio_response(pcm, rate=16000)
 
     client = make_client(handler)
-    long_text = "\n\n".join(f"Paragrafo numero {i}. " + "parola " * 300 for i in range(4))
-    wav = await client.synthesize_speech(long_text, "Leggi piano. ")
-    assert len(requests_seen) > 1
-    assert wav.startswith(b"RIFF")
-    assert all(b"Leggi piano." in body for body in requests_seen)
+    result_pcm, rate = await client.synthesize_chunk("Una piccola storia.", "Leggi piano. ")
+    assert result_pcm == pcm
+    assert rate == 16000
+    assert b"Leggi piano." in requests_seen[0]
     await client.aclose()
 
 
 def test_split_text_short_text_is_single_chunk():
-    assert _split_text("breve", 100) == ["breve"]
+    assert split_text("breve", (100, 500)) == ["breve"]
 
 
-def test_split_text_respects_max_chars_and_keeps_content():
-    text = "\n\n".join(f"Frase {i}. " + "parola " * 80 for i in range(6))
-    chunks = _split_text(text, 1000)
-    assert all(len(chunk) <= 1000 for chunk in chunks)
-    assert "".join(chunks).replace("\n", " ").count("parola") == text.count("parola")
+def test_split_text_respects_per_chunk_budgets():
+    text = "\n\n".join("Frase numero uno. " + "parola " * 60 for _ in range(6))
+    chunks = split_text(text, (300, 600, 1200))
+    budgets = [300, 600] + [1200] * (len(chunks) - 2)
+    assert len(chunks) > 2
+    assert all(len(chunk) <= budget for chunk, budget in zip(chunks, budgets, strict=True))
+    assert " ".join(chunks).replace("\n", " ").count("parola") == text.count("parola")
 
 
 def test_split_text_hard_splits_oversized_sentence():
     text = "a" * 2500
-    chunks = _split_text(text, 1000)
+    chunks = split_text(text, (1000,))
     assert all(len(chunk) <= 1000 for chunk in chunks)
     assert "".join(chunks) == text

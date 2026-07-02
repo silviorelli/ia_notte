@@ -14,7 +14,8 @@ Browser (static/index.html, vanilla JS + Tailwind CDN)
 FastAPI app (app/main.py)
     |-- app/config.py    env-based configuration (.env via python-dotenv)
     |-- app/prompts.py   story prompt template + TTS style instruction
-    |-- app/gemini.py    GeminiClient: text generation + TTS (httpx, async)
+    |-- app/gemini.py    GeminiClient: text generation + chunk TTS (httpx, async)
+    |-- app/narration.py background task: concurrent chunk synthesis
     |-- app/storage.py   StoryStore: JSON + WAV cache on disk (data/stories/)
     v
 Google Gemini REST API (generativelanguage.googleapis.com)
@@ -50,28 +51,47 @@ All Gemini calls go through `_generate_content`, which implements:
   unavailable) or exhausted retries move to the next model;
 - fail-fast on non-retryable client errors (e.g. 400/403).
 
-TTS output is raw 16-bit mono PCM (base64). Long stories are split at
-paragraph/sentence boundaries into chunks below `TTS_CHUNK_MAX_CHARS`; each
-chunk is synthesized separately (with the style instruction prepended) and
-the PCM streams are concatenated, then wrapped in a single WAV container
-with the stdlib `wave` module.
+`synthesize_chunk` converts one text chunk to raw 16-bit mono PCM.
+`split_text` divides the story according to `TTS_CHUNK_PLAN` (per-chunk
+character budgets, last value repeating), breaking at paragraph/sentence
+boundaries. The first budget is deliberately small (~300 chars, roughly
+10 seconds of synthesis) so playback can start quickly.
+
+### Narration orchestrator (`app/narration.py`)
+
+`narrate_story` runs as an asyncio background task spawned by
+`POST /api/stories`. It synthesizes all chunks concurrently (bounded by
+`TTS_CONCURRENCY`), saves each finished chunk as `<id>.part<n>.wav`,
+advances the record's contiguous `chunks_ready` counter, and finally
+concatenates the PCM into the complete `<id>.wav`, marking the story
+`ready`. Any failure marks the story `error` (the text stays readable).
+Running tasks are tracked in `app.state.narrations` and cancelled at
+shutdown; `StoryStore.cleanup` at startup marks stories interrupted by a
+restart as errors and deletes leftover part files of completed stories.
 
 ### Story cache (`app/storage.py`)
 
-Each story is a pair of files in `data/stories/`: `<id>.json` (record with
-id, character, story text, ISO timestamp) and `<id>.wav` (narration).
-Ids are 12-hex-char strings validated by regex on every lookup, which also
-prevents path traversal. Corrupted JSON files are logged and skipped when
-listing.
+Each story is a JSON record (`<id>.json`, with narration `status` and chunk
+counters) plus audio files: `<id>.part<n>.wav` while generating and
+`<id>.wav` once complete. Ids are 12-hex-char strings validated by regex on
+every lookup, which also prevents path traversal. Records are written via
+temp-file-then-rename so pollers never read partial JSON. Corrupted JSON
+files are logged and skipped when listing. Records created before chunked
+narration are normalized to `status: ready` on read.
 
 ## Request flow (story creation)
 
 1. `POST /api/stories` with `{"character": "..."}` (validated by Pydantic).
 2. The character is inserted into the prompt template (`build_story_prompt`).
-3. `GeminiClient.generate_story` returns the story text.
-4. `GeminiClient.synthesize_speech` returns WAV audio of the narration.
-5. `StoryStore.save` persists both; the record (with `audio_url`) is returned.
-6. The frontend sets the audio element source to `/api/stories/{id}/audio`.
+3. `GeminiClient.generate_story` returns the story text (~10s); the story is
+   split into chunks, saved as `generating`, and the response returns
+   immediately so the parent can already read the text.
+4. `narrate_story` synthesizes chunks in parallel in the background.
+5. The frontend polls `GET /api/stories/{id}` (every 2s) and starts playing
+   `/api/stories/{id}/audio/0` as soon as `chunks_ready >= 1`, advancing to
+   the next part on `ended` (waiting for it if necessary).
+6. When the status becomes `ready`, replays use the complete
+   `/api/stories/{id}/audio` file (full seeking).
 
-Failures in steps 3-4 surface as HTTP 502 with a user-friendly Italian
-message; a missing API key surfaces as HTTP 503.
+A text-generation failure surfaces as HTTP 502; a missing API key as 503;
+a narration failure as `status: error` in the record.

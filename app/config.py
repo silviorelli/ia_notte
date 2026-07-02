@@ -35,6 +35,12 @@ TTS_MODELS = _model_list(
 TTS_VOICE = os.getenv("GEMINI_TTS_VOICE", "Sulafat")
 TTS_LANGUAGE = os.getenv("GEMINI_TTS_LANGUAGE", "it-IT")
 
+# Max chars per TTS chunk: first value for chunk 1, second for chunk 2, ...;
+# the last value repeats for all remaining chunks. A small first chunk keeps
+# time-to-first-audio around 10 seconds.
+TTS_CHUNK_PLAN = tuple(int(size) for size in os.getenv("TTS_CHUNK_PLAN", "300,600,1200").split(","))
+TTS_CONCURRENCY = int(os.getenv("TTS_CONCURRENCY", "3"))
+
 PRESET_CHARACTERS = [
     "Barbie",
     "Minnie",

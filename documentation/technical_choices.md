@@ -29,15 +29,26 @@
 - **Voice**: `Sulafat` by default (documented as a warm voice), configurable
   via `GEMINI_TTS_VOICE`. Language fixed to `it-IT` via `GEMINI_TTS_LANGUAGE`.
 
-## Audio format
+## Audio format and progressive narration
 
 - Gemini TTS returns raw 16-bit mono PCM at 24 kHz. The backend wraps it in
   a WAV container with the stdlib `wave` module: zero dependencies and every
   browser can play and seek it. Trade-off: WAV is large (~2.8 MB/min), fine
   on a home network; MP3 would need ffmpeg/lame, not worth the dependency.
-- Long texts are chunked below 3500 chars at paragraph/sentence boundaries
-  and the PCM concatenated before wrapping, so arbitrarily long stories
-  produce one seamless audio file.
+- The TTS models expose only `generateContent` (no `streamGenerateContent`,
+  verified via ListModels), and synthesis runs at roughly 2.5x real time
+  (~105s for a whole 4-minute story). To cut perceived latency the story is
+  split per `TTS_CHUNK_PLAN` (default 300,600,1200 chars: the last value
+  repeats) and chunks are synthesized concurrently (`TTS_CONCURRENCY`,
+  default 3) by a background task. The small first chunk is ready in ~10s,
+  so playback starts while the rest is still generating; growing budgets
+  keep later chunks ready before the player needs them.
+- The frontend polls the record every 2s and plays part files sequentially
+  through one audio element; chunk boundaries sit at paragraph/sentence
+  ends, so the tiny gap between parts sounds natural. Once narration
+  completes, the parts are concatenated into a single WAV used for replays
+  (full seek bar); part files are cleaned up at next startup rather than at
+  finalize time so a client mid-playback never loses its source.
 - Playback speed is a pure frontend concern (`audioElement.playbackRate`),
   so one generated audio serves every speed in the 0.8x-1.4x range.
 
