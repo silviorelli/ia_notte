@@ -106,3 +106,30 @@ narration are normalized to `status: ready` on read.
 
 A text-generation failure surfaces as HTTP 502; a missing API key as 503;
 a narration failure as `status: error` in the record.
+
+## Deployment
+
+The app ships as a Docker container (see `Dockerfile`, `docker-compose.yml`)
+and runs on the OCI ARM instance managed by the separate `infra_relli` repo,
+which owns the port opening (security list) and the deploy script
+(`infra_relli/scripts/deploy-ia-notte.sh`: rsync of the sources to the
+instance, image built there, `docker compose up -d --build`).
+
+```
+Internet ──:8082──> host (OCI ARM instance)
+                      └── container ia-notte (uvicorn :8000, non-root user)
+                            ├── .env (synced next to the compose file, never in the image)
+                            └── named volume stories -> /data/stories (JSON+WAV cache)
+```
+
+- Two-stage image: uv installs locked dependencies into `.venv` in a builder
+  stage; the runtime stage is `python:3.13-slim` + venv + `app/` + `static/`.
+- `STORIES_DIR=/data/stories` is forced by the compose `environment` (it must
+  match the volume mount point and win over any value in `.env`).
+- **Single uvicorn worker, single replica, by design**: narration tasks and
+  rate-limit state live in the process (`app.state.narrations`); scaling out
+  would orphan in-flight narrations.
+- `stop_grace_period: 60s` lets uvicorn drain long WAV downloads before the
+  lifespan hook cancels narrations; `StoryStore.cleanup` self-heals interrupted
+  stories at next startup.
+- Healthcheck polls `GET /api/config` (cheap, no Gemini call).

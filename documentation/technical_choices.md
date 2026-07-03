@@ -80,6 +80,39 @@
   preventing path traversal.
 - Request bodies validated with Pydantic (character: 1-80 chars).
 
+## Containerization & deployment
+
+- **Two-stage uv build**: builder stage runs `uv sync --frozen --no-dev` with
+  bind-mounted `pyproject.toml`/`uv.lock` and a cache mount, so the deps layer
+  is rebuilt only when the lockfile changes; code changes rebuild two COPY
+  layers in seconds. `UV_PYTHON_DOWNLOADS=0` pins the image interpreter; the
+  runtime base (`python:3.13-slim-bookworm`) is the same image the uv builder
+  derives from, so the venv symlinks stay valid.
+- **Image built on the target instance** (rsync sources + `docker compose up
+  -d --build`) instead of a registry: no registry account/credentials to
+  manage for a personal project, and every transitive compiled dependency
+  ships aarch64 wheels, so the ARM build needs no compiler and stays fast
+  even on 2 OCPUs.
+- **Allowlist `.dockerignore`** (`*` then `!app !static !pyproject.toml
+  !uv.lock`): `.env`, `data/`, `.git` and tests can never leak into the build
+  context or image layers.
+- **Named volume for `/data/stories`** rather than a bind mount: the deploy
+  rsync uses `--delete`, which would wipe a bind-mounted cache under the app
+  dir; a named volume survives deploys, rebuilds and `docker compose down`.
+  `STORIES_DIR` is forced in the compose `environment` (wins over `.env`) so
+  it always matches the mount point.
+- **Non-root container user**; `/data/stories` is pre-created and chowned in
+  the image so an empty named volume inherits the right ownership.
+- **Healthcheck via a python/urllib one-liner** on `GET /api/config`: the
+  slim image has no curl and installing one for healthchecks is not worth it.
+- **Single worker / single replica** (no `--workers`, never scale the
+  service): fire-and-forget narration tasks and the 429 rate-limit state are
+  in-process. `stop_grace_period: 60s` covers draining multi-MB WAV downloads
+  on shutdown; interrupted narrations are healed by `cleanup()` at startup.
+- **No auth on the endpoints** (home-use design) while the port is public:
+  accepted trade-off — an outsider finding the IP could consume Gemini quota.
+  Future mitigation if needed: shared token or reverse proxy with basic auth.
+
 ## Testing
 
 - pytest; all external calls mocked (`httpx.MockTransport` for the Gemini

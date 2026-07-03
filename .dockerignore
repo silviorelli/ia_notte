@@ -1,0 +1,8 @@
+# Allowlist: only what the image needs may enter the build context.
+# Everything else — including .env, data/, .git, tests/ — stays out.
+*
+!app
+!static
+!pyproject.toml
+!uv.lock
+app/__pycache__

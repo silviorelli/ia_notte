@@ -1,0 +1,33 @@
+# IA notte in a container. On the OCI instance this file is synced to
+# ~/apps/ia-notte/ and run by infra_relli/scripts/deploy-ia-notte.sh.
+# Requires a .env file next to this file with at least GEMINI_API_KEY.
+services:
+  ia-notte:
+    build: .
+    container_name: ia-notte
+    ports:
+      - "8082:8000"
+    env_file: .env
+    environment:
+      # The mount point below is fixed by this file and must win over any
+      # STORIES_DIR in .env (compose gives `environment` precedence).
+      STORIES_DIR: /data/stories
+    volumes:
+      # Story cache (JSON + WAV); named volume so deploys and rebuilds
+      # never touch it. `docker compose down -v` deletes it.
+      - stories:/data/stories
+    restart: unless-stopped
+    # On SIGTERM uvicorn drains open connections (multi-MB WAV downloads)
+    # before the lifespan hook cancels background narrations; leave time
+    # before SIGKILL. Do not scale: single worker, single replica.
+    stop_grace_period: 60s
+    healthcheck:
+      # stdlib one-liner: the slim image ships no curl
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/config', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  stories:

@@ -17,6 +17,19 @@ uv run uvicorn app.main:app --reload                              # dev mode, au
 App: http://localhost:8000 (from a phone: http://<computer-ip>:8000)
 Interactive API docs (FastAPI): http://localhost:8000/docs
 
+## Docker
+
+```bash
+docker compose up -d --build     # build the image and start on :8082
+docker compose logs -f           # follow app logs
+docker compose ps                # status + health
+docker compose down              # stop (add -v to ALSO delete the story cache)
+docker volume inspect ia_notte_stories   # where the cache volume lives
+```
+
+Production deploy (OCI instance) lives in the infra repo:
+`infra_relli/scripts/deploy-ia-notte.sh`.
+
 ## Quality
 
 ```bash

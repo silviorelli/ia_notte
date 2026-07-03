@@ -29,6 +29,18 @@ uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 Poi apri http://localhost:8000 — oppure, dal telefono sulla stessa rete Wi-Fi,
 `http://<ip-del-computer>:8000`.
 
+### Avvio con Docker
+
+```bash
+docker compose up -d --build
+```
+
+L'app è su http://localhost:8082. Le storie restano in un volume Docker
+(`ia_notte_stories`), separato da `data/stories/` usata dall'avvio con uv.
+
+Il deploy in produzione (istanza OCI, porta 8082) è gestito dal repo di
+infrastruttura `infra_relli` con `scripts/deploy-ia-notte.sh`.
+
 ## Uso
 
 1. Tocca uno dei personaggi preimpostati, oppure scrivi un personaggio a piacere
