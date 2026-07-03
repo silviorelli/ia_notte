@@ -11,18 +11,23 @@ def test_save_starts_generating_and_finalize_completes(tmp_path: Path):
     record = store.save("Elsa", "C'era una volta Elsa.", chunks_total=2)
     assert record["status"] == STATUS_GENERATING
     assert record["chunks_ready"] == 0
+    assert record["parts_done"] == []
     assert store.audio_path(record["id"]) is None
 
-    store.save_part(record["id"], 0, b"RIFFpart0")
-    store.set_progress(record["id"], 1)
-    assert store.get(record["id"])["chunks_ready"] == 1
-    assert store.part_path(record["id"], 0).read_bytes() == b"RIFFpart0"
-    assert store.part_path(record["id"], 1) is None
+    store.save_part(record["id"], 1, b"RIFFpart1")
+    store.set_progress(record["id"], 0, [1])
+    loaded = store.get(record["id"])
+    assert loaded["chunks_ready"] == 0
+    assert loaded["parts_done"] == [1]
+    assert store.part_path(record["id"], 1).read_bytes() == b"RIFFpart1"
+    assert store.part_path(record["id"], 0) is None
 
-    store.finalize(record["id"], b"RIFFfull")
+    store.finalize(record["id"], b"RIFFfull", [0.0, 12.5])
     loaded = store.get(record["id"])
     assert loaded["status"] == STATUS_READY
     assert loaded["chunks_ready"] == 2
+    assert loaded["parts_done"] == [0, 1]
+    assert loaded["chapter_offsets"] == [0.0, 12.5]
     assert store.audio_path(record["id"]).read_bytes() == b"RIFFfull"
 
 
@@ -55,18 +60,22 @@ def test_legacy_record_is_normalized_as_ready(tmp_path: Path):
     assert record["status"] == STATUS_READY
     assert record["chunks_total"] == 1
     assert record["chunks_ready"] == 1
+    assert record["parts_done"] == [0]
+    assert "chapter_offsets" not in record
 
 
 def test_cleanup_marks_stale_and_removes_leftover_parts(tmp_path: Path):
     store = StoryStore(tmp_path)
     stale = store.save("Bluey", "Storia interrotta.", chunks_total=2)
+    store.save_part(stale["id"], 0, b"RIFFstalepart")
     done = store.save("Elsa", "Storia completa.", chunks_total=1)
     store.save_part(done["id"], 0, b"RIFFpart")
-    store.finalize(done["id"], b"RIFFfull")
+    store.finalize(done["id"], b"RIFFfull", [0.0])
 
     store.cleanup()
 
     assert store.get(stale["id"])["status"] == STATUS_ERROR
+    assert store.part_path(stale["id"], 0) is None
     assert store.part_path(done["id"], 0) is None
     assert store.audio_path(done["id"]) is not None
 

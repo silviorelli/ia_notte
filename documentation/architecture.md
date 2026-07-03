@@ -26,11 +26,18 @@ Google Gemini REST API (generativelanguage.googleapis.com)
 ### Frontend (`static/index.html`)
 
 Single mobile-first page with four views toggled by JS: character picker,
-loading, story (text + audio controls), and error. The playback-speed slider
-writes `audioElement.playbackRate` directly, so speed changes are instant and
-never require regenerating audio. The chosen speed persists in
-`localStorage`. Recently generated stories are listed and can be replayed
-from the local cache without any Gemini call.
+loading, story (text + audio controls), and error. The player is fully
+custom around a hidden `<audio>` element: big play/pause button, chapter
+chips (one per audio chunk, with a spinner while that chunk's TTS is being
+generated and disabled until it is ready; tapping a ready chapter plays it),
+a seek slider with time labels, and matching speed and volume sliders.
+Speed writes `audioElement.playbackRate` directly, so changes are instant
+and never require regenerating audio; speed and volume persist in
+`localStorage`. Automatic chapter transitions insert a 1-second pause so
+the hand-off sounds natural. Recently generated stories are listed and can
+be replayed from the local cache without any Gemini call; on completed
+stories the chapter chips seek into the full file using the
+`chapter_offsets` stored in the record.
 
 The frontend never sees the Gemini API key; it only talks to the backend.
 
@@ -62,9 +69,10 @@ boundaries. The first budget is deliberately small (~300 chars, roughly
 `narrate_story` runs as an asyncio background task spawned by
 `POST /api/stories`. It synthesizes all chunks concurrently (bounded by
 `TTS_CONCURRENCY`), saves each finished chunk as `<id>.part<n>.wav`,
-advances the record's contiguous `chunks_ready` counter, and finally
-concatenates the PCM into the complete `<id>.wav`, marking the story
-`ready`. Any failure marks the story `error` (the text stays readable).
+updates the record's contiguous `chunks_ready` counter and the exact
+`parts_done` index list (chunks can finish out of order), and finally
+concatenates the PCM into the complete `<id>.wav`, storing per-chapter
+start offsets (`chapter_offsets`) and marking the story `ready`. Any failure marks the story `error` (the text stays readable).
 Running tasks are tracked in `app.state.narrations` and cancelled at
 shutdown; `StoryStore.cleanup` at startup marks stories interrupted by a
 restart as errors and deletes leftover part files of completed stories.
@@ -89,7 +97,10 @@ narration are normalized to `status: ready` on read.
 4. `narrate_story` synthesizes chunks in parallel in the background.
 5. The frontend polls `GET /api/stories/{id}` (every 2s) and starts playing
    `/api/stories/{id}/audio/0` as soon as `chunks_ready >= 1`, advancing to
-   the next part on `ended` (waiting for it if necessary).
+   the next part on `ended` (waiting for it if necessary). While generating,
+   the polled record also carries `rate_limited: true` whenever the Gemini
+   client has recently seen a 429, and the frontend explains the slowdown
+   ("troppe richieste al server...") instead of appearing stuck.
 6. When the status becomes `ready`, replays use the complete
    `/api/stories/{id}/audio` file (full seeking).
 

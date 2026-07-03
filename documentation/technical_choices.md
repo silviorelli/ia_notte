@@ -22,10 +22,17 @@
   `GEMINI_TTS_MODEL` accept comma-separated lists tried in order; a 404
   moves to the next model. This makes the app resilient to model renames
   without code changes.
-- **Retry policy**: 3 attempts per model, exponential backoff (1s, 2s),
-  retrying only 429/5xx/network errors. Non-retryable 4xx fail immediately
-  (a bad key or payload will not improve by retrying). Required by the brief
-  because the TTS endpoint occasionally returns 500.
+- **Retry policy**: 3 attempts per model with exponential backoff (1s, 2s)
+  for 5xx/network errors. Non-retryable 4xx fail immediately (a bad key or
+  payload will not improve by retrying). Rate limits (429) get their own
+  budget of 4 extra waits per model that do not consume regular attempts:
+  free-tier keys allow only 3 requests/minute per TTS model
+  (`GenerateRequestsPerMinutePerProjectPerModel-FreeTier`), so the client
+  honors the server-suggested delay (`RetryInfo.retryDelay` in the body or
+  `Retry-After` header, floored at 5s, capped at 60s) and rides out the
+  minute window instead of burning attempts. On a free-tier key a 5-chunk
+  story therefore completes in a few minutes despite the quota; model
+  fallback remains the last resort so the voice stays consistent.
 - **Voice**: `Sulafat` by default (documented as a warm voice), configurable
   via `GEMINI_TTS_VOICE`. Language fixed to `it-IT` via `GEMINI_TTS_LANGUAGE`.
 
@@ -44,11 +51,17 @@
   so playback starts while the rest is still generating; growing budgets
   keep later chunks ready before the player needs them.
 - The frontend polls the record every 2s and plays part files sequentially
-  through one audio element; chunk boundaries sit at paragraph/sentence
-  ends, so the tiny gap between parts sounds natural. Once narration
-  completes, the parts are concatenated into a single WAV used for replays
-  (full seek bar); part files are cleaned up at next startup rather than at
-  finalize time so a client mid-playback never loses its source.
+  through one audio element, with a deliberate 1-second pause between
+  automatic chapter transitions (an immediate hand-off sounded unnatural).
+  Chunks double as user-facing "chapters": the record exposes the exact
+  `parts_done` indices (chunks finish out of order under concurrency) so
+  each chapter chip can show a spinner until its own TTS is done and stay
+  disabled meanwhile. Once narration completes, the parts are concatenated
+  into a single WAV used for replays, and `chapter_offsets` (start second
+  of each chapter, derived from PCM lengths) lets chapter selection work on
+  the full file as plain seeks. Part files are cleaned up at next startup
+  rather than at finalize time so a client mid-playback never loses its
+  source.
 - Playback speed is a pure frontend concern (`audioElement.playbackRate`),
   so one generated audio serves every speed in the 0.8x-1.4x range.
 

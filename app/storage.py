@@ -53,6 +53,7 @@ class StoryStore:
             "status": STATUS_GENERATING,
             "chunks_total": chunks_total,
             "chunks_ready": 0,
+            "parts_done": [],
         }
         self._write_record(record)
         return record
@@ -67,20 +68,22 @@ class StoryStore:
         """
         (self._directory / f"{story_id}.part{index}.wav").write_bytes(audio_wav)
 
-    def set_progress(self, story_id: str, chunks_ready: int) -> None:
-        """Update how many chunks (contiguous from the start) are playable.
+    def set_progress(self, story_id: str, chunks_ready: int, parts_done: list[int]) -> None:
+        """Update which chunks have been synthesized so far.
 
         Args:
             story_id: Identifier returned by :meth:`save`.
-            chunks_ready: Count of ready chunks starting from index 0.
+            chunks_ready: Count of ready chunks contiguous from index 0.
+            parts_done: Sorted indices of every synthesized chunk (may have gaps).
         """
         record = self.get(story_id)
         if record is None:
             return
         record["chunks_ready"] = chunks_ready
+        record["parts_done"] = parts_done
         self._write_record(record)
 
-    def finalize(self, story_id: str, audio_wav: bytes) -> None:
+    def finalize(self, story_id: str, audio_wav: bytes, chapter_offsets: list[float]) -> None:
         """Store the complete narration and mark the story ready.
 
         Part files are kept on disk so a client that is still playing them
@@ -89,6 +92,8 @@ class StoryStore:
         Args:
             story_id: Identifier returned by :meth:`save`.
             audio_wav: WAV audio bytes of the full narration.
+            chapter_offsets: Start offset in seconds of each chapter within
+                the full audio, used by the frontend to jump to a chapter.
         """
         record = self.get(story_id)
         if record is None:
@@ -96,6 +101,8 @@ class StoryStore:
         (self._directory / f"{story_id}.wav").write_bytes(audio_wav)
         record["status"] = STATUS_READY
         record["chunks_ready"] = record.get("chunks_total", 0)
+        record["parts_done"] = list(range(record.get("chunks_total", 0)))
+        record["chapter_offsets"] = chapter_offsets
         self._write_record(record)
 
     def mark_error(self, story_id: str) -> None:
@@ -181,8 +188,8 @@ class StoryStore:
         """Recover state at startup.
 
         Stories stuck in ``generating`` (their background task died with the
-        previous process) are marked as errors, and leftover part files of
-        completed stories are deleted.
+        previous process) are marked as errors, and leftover part files are
+        deleted: at startup no client can be mid-playback on them.
         """
         for path in self._directory.glob("*.json"):
             record = self.get(path.stem)
@@ -191,9 +198,8 @@ class StoryStore:
             if record["status"] == STATUS_GENERATING:
                 logger.error("Story %s was interrupted by a restart, marking error", record["id"])
                 self.mark_error(record["id"])
-            elif record["status"] == STATUS_READY:
-                for part in self._directory.glob(f"{record['id']}.part*.wav"):
-                    part.unlink()
+            for part in self._directory.glob(f"{record['id']}.part*.wav"):
+                part.unlink()
 
     def _write_record(self, record: dict) -> None:
         """Atomically write a record so readers never see partial JSON."""
@@ -208,4 +214,5 @@ def _normalize(record: dict) -> dict:
     record.setdefault("status", STATUS_READY)
     record.setdefault("chunks_total", 1)
     record.setdefault("chunks_ready", record["chunks_total"])
+    record.setdefault("parts_done", list(range(record["chunks_ready"])))
     return record

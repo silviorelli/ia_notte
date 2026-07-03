@@ -20,9 +20,12 @@ logger = logging.getLogger(__name__)
 
 API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 MAX_ATTEMPTS = 3
+RATE_LIMIT_MAX_ATTEMPTS = 6
+RATE_LIMIT_NOTICE_SECONDS = 10.0
 RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 DEFAULT_SAMPLE_RATE = 24000
 _RATE_PATTERN = re.compile(r"rate=(\d+)")
+_RETRY_DELAY_PATTERN = re.compile(r'"retryDelay":\s*"(\d+(?:\.\d+)?)s"')
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
 _PARAGRAPH_BOUNDARY = re.compile(r"\n\s*\n")
 
@@ -67,6 +70,7 @@ class GeminiClient:
             transport: Optional httpx transport, used by tests for mocking.
         """
         self._settings = settings
+        self._rate_limited_until = 0.0
         self._client = httpx.AsyncClient(
             base_url=API_BASE_URL,
             timeout=httpx.Timeout(300.0, connect=10.0),
@@ -76,6 +80,10 @@ class GeminiClient:
     async def aclose(self) -> None:
         """Close the underlying HTTP connection pool."""
         await self._client.aclose()
+
+    def is_rate_limited(self) -> bool:
+        """Whether a recent 429 suggests calls are currently being throttled."""
+        return time.monotonic() < self._rate_limited_until
 
     async def generate_story(self, prompt: str) -> str:
         """Generate a story from the given prompt.
@@ -146,8 +154,11 @@ class GeminiClient:
         """
         last_error: Exception | None = None
         for model in models:
-            for attempt in range(1, MAX_ATTEMPTS + 1):
+            attempt = 1
+            rate_limit_hits = 0
+            while attempt <= MAX_ATTEMPTS and rate_limit_hits <= RATE_LIMIT_MAX_ATTEMPTS:
                 started = time.monotonic()
+                delay = self._settings.retry_base_delay * 2 ** (attempt - 1)
                 try:
                     response = await self._client.post(
                         f"/models/{model}:generateContent",
@@ -156,10 +167,11 @@ class GeminiClient:
                     )
                 except httpx.HTTPError as exc:
                     last_error = exc
+                    attempt += 1
                     logger.error(
                         "Request to %s failed (attempt %d/%d): %s",
                         model,
-                        attempt,
+                        attempt - 1,
                         MAX_ATTEMPTS,
                         exc,
                     )
@@ -173,18 +185,70 @@ class GeminiClient:
                     if response.status_code == 404:
                         logger.error("Model %s not available, trying next fallback", model)
                         break
-                    logger.error(
-                        "Gemini error from %s (attempt %d/%d): HTTP %d",
-                        model,
-                        attempt,
-                        MAX_ATTEMPTS,
-                        response.status_code,
-                    )
                     if response.status_code not in RETRYABLE_STATUS_CODES:
+                        logger.error("Gemini error from %s: HTTP %d", model, response.status_code)
                         raise last_error
-                if attempt < MAX_ATTEMPTS:
-                    await asyncio.sleep(self._settings.retry_base_delay * 2 ** (attempt - 1))
+                    if response.status_code == 429:
+                        if "PerDay" in response.text:
+                            # Daily quota: waiting is pointless until the
+                            # reset, try the next model right away.
+                            logger.error("Daily quota exhausted on %s", model)
+                            break
+                        # Per-minute quota: wait as suggested without consuming
+                        # the regular attempt budget.
+                        rate_limit_hits += 1
+                        delay = _rate_limit_delay(response, rate_limit_hits, self._settings)
+                        self._rate_limited_until = time.monotonic() + max(
+                            delay, RATE_LIMIT_NOTICE_SECONDS
+                        )
+                        logger.error(
+                            "Rate limit on %s (hit %d/%d): waiting %.0fs",
+                            model,
+                            rate_limit_hits,
+                            RATE_LIMIT_MAX_ATTEMPTS,
+                            delay,
+                        )
+                    else:
+                        attempt += 1
+                        logger.error(
+                            "Gemini error from %s (attempt %d/%d): HTTP %d",
+                            model,
+                            attempt - 1,
+                            MAX_ATTEMPTS,
+                            response.status_code,
+                        )
+                if attempt <= MAX_ATTEMPTS and rate_limit_hits <= RATE_LIMIT_MAX_ATTEMPTS:
+                    await asyncio.sleep(delay)
         raise GeminiError(f"All models failed ({', '.join(models)})") from last_error
+
+
+def _rate_limit_delay(response: httpx.Response, hit: int, settings: GeminiSettings) -> float:
+    """Delay before retrying a rate-limited (429) request.
+
+    Per-minute quotas need much longer waits than the standard backoff, so
+    this honors the delay suggested by the server (``Retry-After`` header or
+    ``RetryInfo.retryDelay`` in the error body), never waiting less than a
+    floor of ``5 * hit * retry_base_delay`` (tiny hints burn retries for
+    nothing, and repeated hits mean the window is contended), and otherwise
+    falls back to tens of seconds. Everything scales with
+    ``retry_base_delay`` so tests stay fast.
+
+    Args:
+        response: The 429 response.
+        hit: How many rate-limit responses this call has seen (1-based).
+        settings: Client settings providing the base delay.
+
+    Returns:
+        Delay in seconds, capped at 60.
+    """
+    floor = 5.0 * hit * settings.retry_base_delay
+    header = response.headers.get("retry-after", "")
+    if header.isdigit():
+        return min(max(float(header), floor), 60.0)
+    match = _RETRY_DELAY_PATTERN.search(response.text)
+    if match:
+        return min(max(float(match.group(1)), floor), 60.0)
+    return min(max(15.0 * hit, floor) * settings.retry_base_delay, 60.0)
 
 
 def split_text(text: str, chunk_plan: tuple[int, ...]) -> list[str]:

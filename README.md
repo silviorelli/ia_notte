@@ -33,12 +33,16 @@ Poi apri http://localhost:8000 — oppure, dal telefono sulla stessa rete Wi-Fi,
 
 1. Tocca uno dei personaggi preimpostati, oppure scrivi un personaggio a piacere
    e tocca "Genera storia".
-2. Il testo appare dopo pochi secondi; la voce viene preparata a blocchi in
+2. Il testo appare dopo pochi secondi; la voce viene preparata a capitoli in
    parallelo e la riproduzione può iniziare dopo circa 20 secondi, mentre il
-   resto si completa in sottofondo.
-3. Ascolta con il pulsante grande play/pausa; regola la velocità di lettura con il
-   cursore (0,8x - 1,4x, predefinita 1,0x). La velocità agisce subito, senza
-   rigenerare l'audio, e viene ricordata tra una sessione e l'altra.
+   resto si completa in sottofondo. Nota: con una chiave sul piano gratuito
+   (3 richieste al minuto per modello TTS) i capitoli successivi possono
+   impiegare qualche minuto; l'app attende e riprova da sola.
+3. Ascolta con il pulsante grande play/pausa. I capitoli della storia compaiono
+   come pulsanti numerati: quelli in preparazione mostrano una rotellina e si
+   attivano appena pronti; toccane uno per saltare a quel punto. Sotto trovi la
+   barra di avanzamento e i cursori di velocità (0,8x - 1,4x, predefinita 1,0x)
+   e volume: agiscono subito e vengono ricordati tra una sessione e l'altra.
 4. "Nuova storia" rigenera con lo stesso personaggio; "Storie recenti" fa riascoltare
    le storie già generate senza consumare chiamate API.
 

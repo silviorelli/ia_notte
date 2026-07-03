@@ -119,13 +119,20 @@ def list_stories(request: Request) -> list[dict]:
 def get_story(story_id: str, request: Request) -> dict:
     """Return a cached story record.
 
+    While narration is in progress the response also carries a
+    ``rate_limited`` flag so the frontend can explain slowdowns caused by
+    API quota throttling.
+
     Raises:
         HTTPException: 404 if the story does not exist.
     """
     store: StoryStore = request.app.state.store
+    gemini: GeminiClient = request.app.state.gemini
     record = store.get(story_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Storia non trovata")
+    if record["status"] == "generating" and gemini.is_rate_limited():
+        record["rate_limited"] = True
     return _public_record(record)
 
 

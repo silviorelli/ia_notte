@@ -71,6 +71,72 @@ async def test_generate_story_fails_fast_on_client_error():
     await client.aclose()
 
 
+async def test_generate_story_retries_rate_limit_with_server_hint():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if len(calls) == 1:
+            return httpx.Response(
+                429,
+                json={"error": {"details": [{"retryDelay": "0s"}]}},
+            )
+        return text_response("Storia dopo il rate limit.")
+
+    client = make_client(handler)
+    assert client.is_rate_limited() is False
+    story = await client.generate_story("prompt")
+    assert story == "Storia dopo il rate limit."
+    assert len(calls) == 2
+    assert client.is_rate_limited() is True
+    await client.aclose()
+
+
+async def test_rate_limit_hits_do_not_consume_regular_attempts():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if len(calls) <= 4:
+            return httpx.Response(429, json={"error": {"details": [{"retryDelay": "0s"}]}})
+        return text_response("Storia con quota al minuto esaurita.")
+
+    client = make_client(handler)
+    story = await client.generate_story("prompt")
+    assert story == "Storia con quota al minuto esaurita."
+    assert len(calls) == 5
+    await client.aclose()
+
+
+async def test_daily_quota_falls_back_to_next_model_without_retrying():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if "model-a" in request.url.path:
+            return httpx.Response(
+                429,
+                json={
+                    "error": {
+                        "details": [
+                            {
+                                "violations": [
+                                    {"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}
+                                ]
+                            }
+                        ]
+                    }
+                },
+            )
+        return text_response("Storia dal modello di riserva.")
+
+    client = make_client(handler, text_models=("model-a", "model-b"))
+    story = await client.generate_story("prompt")
+    assert story == "Storia dal modello di riserva."
+    assert len(calls) == 2
+    await client.aclose()
+
+
 async def test_generate_story_raises_after_all_retries():
     client = make_client(lambda request: httpx.Response(503, text="unavailable"))
     with pytest.raises(GeminiError, match="All models failed"):

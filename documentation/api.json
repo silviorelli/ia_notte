@@ -92,7 +92,7 @@
     "/api/stories/{story_id}": {
       "get": {
         "summary": "Get Story",
-        "description": "Return a cached story record.\n\nRaises:\n    HTTPException: 404 if the story does not exist.",
+        "description": "Return a cached story record.\n\nWhile narration is in progress the response also carries a\n``rate_limited`` flag so the frontend can explain slowdowns caused by\nAPI quota throttling.\n\nRaises:\n    HTTPException: 404 if the story does not exist.",
         "operationId": "get_story_api_stories__story_id__get",
         "parameters": [
           {

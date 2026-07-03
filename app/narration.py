@@ -56,11 +56,12 @@ async def narrate_story(
             pcm_parts[index] = pcm
             rates[index] = sample_rate
             store.save_part(story_id, index, pcm_to_wav(pcm, sample_rate))
-            store.set_progress(story_id, _contiguous_ready(pcm_parts))
+            store.set_progress(story_id, _contiguous_ready(pcm_parts), sorted(pcm_parts))
         if len(set(rates.values())) > 1:
             logger.error("Story %s: mixed sample rates %s, using the first", story_id, rates)
         full_pcm = b"".join(pcm_parts[i] for i in range(len(chunks)))
-        store.finalize(story_id, pcm_to_wav(full_pcm, rates[0]))
+        offsets = _chapter_offsets(pcm_parts, rates[0])
+        store.finalize(story_id, pcm_to_wav(full_pcm, rates[0]), offsets)
         logger.info("Story %s: narration complete (%d chunks)", story_id, len(chunks))
     except (GeminiError, OSError) as exc:
         logger.error("Story %s: narration failed: %s", story_id, exc)
@@ -80,3 +81,19 @@ def _contiguous_ready(pcm_parts: dict[int, bytes]) -> int:
     while count in pcm_parts:
         count += 1
     return count
+
+
+def _chapter_offsets(pcm_parts: dict[int, bytes], sample_rate: int) -> list[float]:
+    """Compute each chapter's start offset in seconds within the full audio.
+
+    Args:
+        pcm_parts: Raw 16-bit mono PCM of every chunk, keyed by index.
+        sample_rate: Sample rate in Hz shared by all chunks.
+
+    Returns:
+        One offset per chapter; the first is always 0.0.
+    """
+    offsets = [0.0]
+    for index in range(len(pcm_parts) - 1):
+        offsets.append(offsets[-1] + len(pcm_parts[index]) / (2 * sample_rate))
+    return offsets

@@ -8,7 +8,6 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     input[type="range"] { accent-color: #d97706; }
-    audio { border-radius: 0.75rem; width: 100%; }
   </style>
 </head>
 <body class="bg-stone-950 text-amber-50 min-h-screen antialiased">
@@ -85,7 +84,19 @@
         </div>
         <p id="voice-status" class="text-center text-amber-100/60 text-base mb-4 min-h-6"></p>
 
-        <audio id="audio" controls preload="metadata" class="mb-5"></audio>
+        <div id="chapters-section" class="hidden mb-4">
+          <p class="text-lg text-amber-100/80 mb-2">Capitoli</p>
+          <div id="chapters-row" class="flex flex-wrap gap-2"></div>
+        </div>
+
+        <div class="mb-4">
+          <input id="seek-slider" type="range" min="0" max="0" step="0.1" value="0"
+                 class="w-full h-10" aria-label="Posizione">
+          <div class="flex justify-between text-sm text-amber-100/50 -mt-1">
+            <span id="current-time">0:00</span>
+            <span id="total-time">0:00</span>
+          </div>
+        </div>
 
         <div class="flex items-center justify-between mb-2">
           <label for="speed-slider" class="text-lg text-amber-100/80">Velocità</label>
@@ -93,6 +104,15 @@
         </div>
         <input id="speed-slider" type="range" min="0.8" max="1.4" step="0.1"
                class="w-full h-10">
+
+        <div class="flex items-center justify-between mb-2 mt-3">
+          <label for="volume-slider" class="text-lg text-amber-100/80">Volume</label>
+          <span id="volume-label" class="text-2xl font-semibold text-amber-200"></span>
+        </div>
+        <input id="volume-slider" type="range" min="0" max="1" step="0.05"
+               class="w-full h-10">
+
+        <audio id="audio" preload="metadata" class="hidden"></audio>
       </div>
 
       <article id="story-text"
@@ -120,15 +140,19 @@
     const el = (id) => document.getElementById(id);
     const VIEWS = ["picker", "loading", "error", "story"];
     const SPEED_KEY = "ia-notte-speed";
+    const VOLUME_KEY = "ia-notte-volume";
     const POLL_INTERVAL_MS = 2000;
+    const CHAPTER_GAP_MS = 1000;
     const state = {
       character: null,
       record: null,
       mode: "full",          // "full": file completo | "parts": blocchi progressivi
-      currentPart: 0,
-      waitingNext: false,    // playback fermo in attesa del blocco successivo
+      currentChapter: 0,
+      waitingNext: false,    // playback fermo in attesa del capitolo successivo
       playbackStarted: false,
       pollTimer: null,
+      advanceTimer: null,    // pausa di 1s tra un capitolo e il successivo
+      seeking: false,
     };
 
     function showView(name) {
@@ -222,6 +246,13 @@
       }
     }
 
+    function cancelPendingAdvance() {
+      if (state.advanceTimer) {
+        clearTimeout(state.advanceTimer);
+        state.advanceTimer = null;
+      }
+    }
+
     function setVoiceStatus(message) {
       el("voice-status").textContent = message;
     }
@@ -230,51 +261,57 @@
       el("play-btn").disabled = !enabled;
     }
 
+    function partsDone() {
+      return new Set(state.record && state.record.parts_done || []);
+    }
+
     function showStory(record) {
       stopPolling();
+      cancelPendingAdvance();
       const audio = el("audio");
       audio.pause();
       audio.removeAttribute("src");
       state.character = record.character;
       state.record = record;
-      state.currentPart = 0;
+      state.currentChapter = 0;
       state.waitingNext = false;
       state.playbackStarted = false;
+      state.seeking = false;
       el("story-title").textContent = "La storia di " + record.character;
       el("story-text").textContent = record.story;
+      resetSeekBar();
       showView("story");
 
       if (record.status === "ready") {
         state.mode = "full";
         audio.src = record.audio_url;
-        applySpeed();
         setPlayEnabled(true);
         setVoiceStatus("");
-        return;
-      }
-      if (record.status === "error") {
+      } else if (record.status === "error") {
         state.mode = "full";
         setPlayEnabled(false);
         setVoiceStatus("La voce non è disponibile per questa storia.");
-        return;
-      }
-      state.mode = "parts";
-      if (record.chunks_ready > 0) {
-        loadPart(0, false);
       } else {
-        setPlayEnabled(false);
-        setVoiceStatus("Sto preparando la voce...");
+        state.mode = "parts";
+        if (record.chunks_ready > 0) {
+          loadPart(0, false);
+        } else {
+          setPlayEnabled(false);
+          setVoiceStatus("Sto preparando la voce...");
+        }
+        state.pollTimer = setInterval(pollRecord, POLL_INTERVAL_MS);
       }
-      state.pollTimer = setInterval(pollRecord, POLL_INTERVAL_MS);
+      renderChapters();
     }
 
     function loadPart(index, autoplay) {
+      cancelPendingAdvance();
       const audio = el("audio");
-      state.currentPart = index;
+      state.currentChapter = index;
       audio.src = partUrl(state.record, index);
-      applySpeed();
       setPlayEnabled(true);
       updateVoiceProgress();
+      renderChapters();
       if (autoplay) {
         audio.play().catch((error) => {
           console.error("Riproduzione automatica bloccata:", error);
@@ -282,14 +319,93 @@
       }
     }
 
+    function selectChapter(index) {
+      const audio = el("audio");
+      if (state.mode === "parts") {
+        if (!partsDone().has(index)) { return; }
+        state.waitingNext = false;
+        loadPart(index, true);
+        return;
+      }
+      const offsets = state.record.chapter_offsets;
+      if (!offsets || offsets[index] === undefined) { return; }
+      cancelPendingAdvance();
+      state.currentChapter = index;
+      audio.currentTime = offsets[index];
+      renderChapters();
+      audio.play().catch((error) => {
+        console.error("Riproduzione bloccata:", error);
+      });
+    }
+
+    function chapterChip(index, ready, current, spinning) {
+      const button = document.createElement("button");
+      button.disabled = !ready;
+      const base = "min-w-12 px-4 py-3 rounded-xl text-lg font-semibold " +
+        "flex items-center justify-center gap-2 ";
+      if (current) {
+        button.className = base + "bg-amber-600 text-stone-950";
+      } else if (ready) {
+        button.className = base + "bg-stone-800 text-amber-100 border border-stone-700 " +
+          "active:bg-amber-800";
+      } else {
+        button.className = base + "bg-stone-800/50 text-amber-100/40 border border-stone-800";
+      }
+      const label = document.createElement("span");
+      label.textContent = String(index + 1);
+      button.append(label);
+      if (spinning) {
+        const spinner = document.createElement("span");
+        spinner.innerHTML =
+          '<svg class="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
+          '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" ' +
+          'class="opacity-25"></circle>' +
+          '<path d="M22 12a10 10 0 0 1-10 10" stroke="currentColor" stroke-width="4" ' +
+          'stroke-linecap="round"></path></svg>';
+        button.append(spinner);
+        button.setAttribute("aria-label", "Capitolo " + (index + 1) + " in preparazione");
+      }
+      button.addEventListener("click", () => selectChapter(index));
+      return button;
+    }
+
+    function renderChapters() {
+      const record = state.record;
+      const section = el("chapters-section");
+      const total = record ? record.chunks_total || 1 : 1;
+      const generating = record && record.status === "generating";
+      const hasOffsets = record && Array.isArray(record.chapter_offsets);
+      if (!record || total <= 1 || (state.mode === "full" && !hasOffsets)) {
+        section.classList.add("hidden");
+        return;
+      }
+      section.classList.remove("hidden");
+      const done = partsDone();
+      const chips = [];
+      for (let index = 0; index < total; index++) {
+        const ready = state.mode === "full" || done.has(index);
+        chips.push(chapterChip(index, ready, index === state.currentChapter,
+          !ready && generating));
+      }
+      el("chapters-row").replaceChildren(...chips);
+    }
+
     function updateVoiceProgress() {
       const record = state.record;
-      if (record.status === "generating" && state.mode === "parts") {
-        setVoiceStatus("Voce: parte " + (state.currentPart + 1) + " di " + record.chunks_total +
-          (state.waitingNext ? " (preparo la prossima...)" : ""));
-      } else {
+      if (record.status !== "generating" || state.mode !== "parts") {
         setVoiceStatus("");
+        return;
       }
+      if (record.rate_limited) {
+        setVoiceStatus("Troppe richieste al server, potrebbe volerci qualche secondo in più...");
+        return;
+      }
+      if (record.chunks_ready === 0) {
+        setVoiceStatus("Sto preparando la voce...");
+        return;
+      }
+      setVoiceStatus("Voce: capitolo " + (state.currentChapter + 1) + " di " +
+        record.chunks_total + (state.waitingNext ? " (preparo il prossimo...)" : ""));
     }
 
     async function pollRecord() {
@@ -307,11 +423,12 @@
       if (state.mode === "parts" && record.chunks_ready > 0 && !audio.getAttribute("src")) {
         loadPart(0, false);
       }
-      if (state.waitingNext && state.currentPart + 1 < record.chunks_ready) {
+      if (state.waitingNext && partsDone().has(state.currentChapter + 1)) {
         state.waitingNext = false;
-        loadPart(state.currentPart + 1, true);
+        loadPart(state.currentChapter + 1, true);
       }
       updateVoiceProgress();
+      renderChapters();
 
       if (record.status === "generating") { return; }
       stopPolling();
@@ -319,30 +436,63 @@
         if (state.mode === "parts" && !state.playbackStarted) {
           state.mode = "full";
           audio.src = record.audio_url;
-          applySpeed();
           setPlayEnabled(true);
         }
         setVoiceStatus("");
+        renderChapters();
         loadRecent();
       } else if (record.status === "error") {
         setVoiceStatus(record.chunks_ready > 0
           ? "La voce si è interrotta: è disponibile solo l'inizio."
           : "La voce non è disponibile, ma puoi leggere la storia.");
         if (record.chunks_ready === 0) { setPlayEnabled(false); }
+        renderChapters();
         loadRecent();
       }
     }
 
     function onAudioEnded() {
       if (state.mode !== "parts" || !state.record) { return; }
-      const next = state.currentPart + 1;
+      const next = state.currentChapter + 1;
       if (next >= state.record.chunks_total) { return; }
-      if (next < state.record.chunks_ready) {
-        loadPart(next, true);
+      if (partsDone().has(next)) {
+        cancelPendingAdvance();
+        state.advanceTimer = setTimeout(() => {
+          state.advanceTimer = null;
+          loadPart(next, true);
+        }, CHAPTER_GAP_MS);
       } else if (state.record.status === "generating") {
         state.waitingNext = true;
         updateVoiceProgress();
       }
+    }
+
+    function updateFullModeChapter() {
+      const offsets = state.record && state.record.chapter_offsets;
+      if (!offsets) { return; }
+      const position = el("audio").currentTime + 0.01;
+      let chapter = 0;
+      for (let index = 0; index < offsets.length; index++) {
+        if (offsets[index] <= position) { chapter = index; }
+      }
+      if (chapter !== state.currentChapter) {
+        state.currentChapter = chapter;
+        renderChapters();
+      }
+    }
+
+    function formatTime(seconds) {
+      if (!Number.isFinite(seconds) || seconds < 0) { return "0:00"; }
+      const minutes = Math.floor(seconds / 60);
+      const rest = String(Math.floor(seconds % 60)).padStart(2, "0");
+      return minutes + ":" + rest;
+    }
+
+    function resetSeekBar() {
+      el("seek-slider").value = "0";
+      el("seek-slider").max = "0";
+      el("current-time").textContent = "0:00";
+      el("total-time").textContent = "0:00";
     }
 
     function applySpeed() {
@@ -354,9 +504,18 @@
       localStorage.setItem(SPEED_KEY, String(value));
     }
 
+    function applyVolume() {
+      const value = parseFloat(el("volume-slider").value);
+      el("volume-label").textContent = Math.round(value * 100) + "%";
+      el("audio").volume = value;
+      localStorage.setItem(VOLUME_KEY, String(value));
+    }
+
     function initAudioControls() {
       const audio = el("audio");
+      const seek = el("seek-slider");
       el("play-btn").addEventListener("click", () => {
+        cancelPendingAdvance();
         if (audio.paused) { audio.play(); } else { audio.pause(); }
       });
       const setIcon = (playing) => {
@@ -372,8 +531,24 @@
         setIcon(false);
         onAudioEnded();
       });
-      audio.addEventListener("loadedmetadata", applySpeed);
+      audio.addEventListener("loadedmetadata", () => {
+        seek.max = String(audio.duration);
+        el("total-time").textContent = formatTime(audio.duration);
+        applySpeed();
+        applyVolume();
+      });
+      audio.addEventListener("timeupdate", () => {
+        if (!state.seeking) { seek.value = String(audio.currentTime); }
+        el("current-time").textContent = formatTime(audio.currentTime);
+        if (state.mode === "full") { updateFullModeChapter(); }
+      });
+      seek.addEventListener("pointerdown", () => { state.seeking = true; });
+      seek.addEventListener("input", () => {
+        audio.currentTime = parseFloat(seek.value);
+      });
+      seek.addEventListener("change", () => { state.seeking = false; });
       el("speed-slider").addEventListener("input", applySpeed);
+      el("volume-slider").addEventListener("input", applyVolume);
     }
 
     function initButtons() {
@@ -392,6 +567,7 @@
       });
       const goHome = () => {
         stopPolling();
+        cancelPendingAdvance();
         el("audio").pause();
         showView("picker");
       };
@@ -410,11 +586,15 @@
       } catch (error) {
         console.error("Impossibile caricare la configurazione:", error);
       }
-      const saved = parseFloat(localStorage.getItem(SPEED_KEY));
-      const clamped = Math.min(1.4, Math.max(0.8, saved));
-      const speed = Number.isFinite(saved) ? Math.round(clamped * 10) / 10 : defaultRate;
+      const savedSpeed = parseFloat(localStorage.getItem(SPEED_KEY));
+      const clamped = Math.min(1.4, Math.max(0.8, savedSpeed));
+      const speed = Number.isFinite(savedSpeed) ? Math.round(clamped * 10) / 10 : defaultRate;
       el("speed-slider").value = String(speed);
       applySpeed();
+      const savedVolume = parseFloat(localStorage.getItem(VOLUME_KEY));
+      const volume = Number.isFinite(savedVolume) ? Math.min(1, Math.max(0, savedVolume)) : 1;
+      el("volume-slider").value = String(volume);
+      applyVolume();
       loadRecent();
     }
 

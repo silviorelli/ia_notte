@@ -20,6 +20,10 @@ class FakeGemini:
 
     def __init__(self, fail_tts: bool = False) -> None:
         self.fail_tts = fail_tts
+        self.rate_limited = False
+
+    def is_rate_limited(self) -> bool:
+        return self.rate_limited
 
     async def generate_story(self, prompt: str) -> str:
         return FAKE_STORY
@@ -80,6 +84,9 @@ def test_create_story_returns_text_then_audio_becomes_ready(client: TestClient):
     settled = wait_until_settled(client, record["id"])
     assert settled["status"] == "ready"
     assert settled["chunks_ready"] == settled["chunks_total"]
+    assert settled["parts_done"] == list(range(settled["chunks_total"]))
+    assert settled["chapter_offsets"][0] == 0.0
+    assert len(settled["chapter_offsets"]) == settled["chunks_total"]
 
     audio = client.get(settled["audio_url"])
     assert audio.status_code == 200
@@ -115,6 +122,17 @@ def test_tts_failure_marks_story_error_but_keeps_text(client: TestClient):
     settled = wait_until_settled(client, record["id"])
     assert settled["status"] == "error"
     assert client.get(settled["audio_url"]).status_code == 404
+
+
+def test_generating_story_reports_rate_limit(client: TestClient):
+    app.state.gemini.rate_limited = True
+    record = app.state.store.save("Elsa", FAKE_STORY, chunks_total=2)
+    polled = client.get(f"/api/stories/{record['id']}").json()
+    assert polled["rate_limited"] is True
+
+    app.state.gemini.rate_limited = False
+    polled = client.get(f"/api/stories/{record['id']}").json()
+    assert "rate_limited" not in polled
 
 
 def test_text_failure_returns_502(client: TestClient):

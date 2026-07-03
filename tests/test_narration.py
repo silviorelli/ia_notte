@@ -44,6 +44,9 @@ async def test_narrate_story_preserves_order_despite_completion_order(tmp_path: 
     loaded = store.get(record["id"])
     assert loaded["status"] == STATUS_READY
     assert loaded["chunks_ready"] == 3
+    assert loaded["parts_done"] == [0, 1, 2]
+    chunk_seconds = 4 / (2 * 24000)
+    assert loaded["chapter_offsets"] == pytest.approx([0.0, chunk_seconds, 2 * chunk_seconds])
     assert read_pcm(store.audio_path(record["id"]).read_bytes()) == b"111122223333"
     for index, chunk in enumerate(chunks):
         assert read_pcm(store.part_path(record["id"], index).read_bytes()) == chunk.encode()

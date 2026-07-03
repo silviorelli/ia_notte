@@ -27,7 +27,9 @@ def _model_list(env_var: str, default: str) -> tuple[str, ...]:
     return tuple(m.strip() for m in os.getenv(env_var, default).split(",") if m.strip())
 
 
-TEXT_MODELS = _model_list("GEMINI_TEXT_MODEL", "gemini-2.5-flash")
+TEXT_MODELS = _model_list(
+    "GEMINI_TEXT_MODEL", "gemini-2.5-flash,gemini-flash-latest,gemini-2.5-flash-lite"
+)
 TTS_MODELS = _model_list(
     "GEMINI_TTS_MODEL",
     "gemini-3.1-flash-tts-preview,gemini-2.5-flash-preview-tts,gemini-2.5-pro-preview-tts",
@@ -39,7 +41,7 @@ TTS_LANGUAGE = os.getenv("GEMINI_TTS_LANGUAGE", "it-IT")
 # the last value repeats for all remaining chunks. A small first chunk keeps
 # time-to-first-audio around 10 seconds.
 TTS_CHUNK_PLAN = tuple(int(size) for size in os.getenv("TTS_CHUNK_PLAN", "300,600,1200").split(","))
-TTS_CONCURRENCY = int(os.getenv("TTS_CONCURRENCY", "3"))
+TTS_CONCURRENCY = int(os.getenv("TTS_CONCURRENCY", "1"))
 
 PRESET_CHARACTERS = [
     "Barbie",
