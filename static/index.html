@@ -14,6 +14,16 @@
   <main class="max-w-md mx-auto px-4 py-6 pb-16">
 
     <header class="flex items-center gap-3 mb-8">
+      <button id="home-btn" aria-label="Torna alla pagina iniziale"
+              class="hidden rounded-xl bg-stone-800 active:bg-stone-700 border border-stone-700
+                     px-4 py-3 text-lg font-semibold text-amber-100">
+        <span class="flex items-center gap-2">
+          <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+               aria-hidden="true"><path d="M19 12H5m7-7-7 7 7 7"/></svg>
+          Indietro
+        </span>
+      </button>
       <svg class="w-9 h-9 text-amber-300" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
       </svg>
@@ -157,7 +167,16 @@
 
     function showView(name) {
       VIEWS.forEach((v) => el("view-" + v).classList.toggle("hidden", v !== name));
+      el("home-btn").classList.toggle("hidden", name === "picker");
       window.scrollTo(0, 0);
+    }
+
+    const STORY_PATH = /^\/storia\/([0-9a-f]{12})$/;
+
+    function setUrl(path) {
+      if (location.pathname !== path) {
+        history.pushState({}, "", path);
+      }
     }
 
     async function fetchJson(url, options) {
@@ -218,6 +237,7 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ character }),
         });
+        setUrl("/storia/" + record.id);
         showStory(record);
         loadRecent();
       } catch (error) {
@@ -226,9 +246,13 @@
       }
     }
 
-    async function openStory(id) {
+    async function openStory(id, updateUrl = true) {
       try {
-        showStory(await fetchJson("/api/stories/" + id));
+        const record = await fetchJson("/api/stories/" + id);
+        if (updateUrl) {
+          setUrl("/storia/" + record.id);
+        }
+        showStory(record);
       } catch (error) {
         el("error-message").textContent = error.message;
         showView("error");
@@ -279,6 +303,7 @@
       state.seeking = false;
       el("story-title").textContent = "La storia di " + record.character;
       el("story-text").textContent = record.story;
+      document.title = "IA notte - " + record.character;
       resetSeekBar();
       showView("story");
 
@@ -563,16 +588,33 @@
       });
       el("new-story-btn").addEventListener("click", () => generate(state.character));
       el("retry-btn").addEventListener("click", () => {
-        if (state.character) { generate(state.character); } else { showView("picker"); }
+        if (state.character) { generate(state.character); } else { goHome(); }
       });
-      const goHome = () => {
-        stopPolling();
-        cancelPendingAdvance();
-        el("audio").pause();
-        showView("picker");
-      };
+      el("home-btn").addEventListener("click", goHome);
       el("back-btn").addEventListener("click", goHome);
       el("error-back-btn").addEventListener("click", goHome);
+    }
+
+    function showPicker() {
+      stopPolling();
+      cancelPendingAdvance();
+      el("audio").pause();
+      document.title = "IA notte";
+      showView("picker");
+    }
+
+    function goHome() {
+      showPicker();
+      setUrl("/");
+    }
+
+    function handleRoute() {
+      const match = location.pathname.match(STORY_PATH);
+      if (match) {
+        openStory(match[1], false);
+      } else {
+        showPicker();
+      }
     }
 
     async function init() {
@@ -596,6 +638,8 @@
       el("volume-slider").value = String(volume);
       applyVolume();
       loadRecent();
+      window.addEventListener("popstate", handleRoute);
+      handleRoute();
     }
 
     init();

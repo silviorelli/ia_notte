@@ -26,7 +26,12 @@ Google Gemini REST API (generativelanguage.googleapis.com)
 ### Frontend (`static/index.html`)
 
 Single mobile-first page with four views toggled by JS: character picker,
-loading, story (text + audio controls), and error. The player is fully
+loading, story (text + audio controls), and error. Every story has its own
+URL (`/storia/{id}`, History API): creating or opening a story pushes the
+path, browser back/forward and page reloads are handled by a `popstate`
+router, and the backend serves the SPA for story deep links so they can be
+shared or bookmarked. Outside the home view a header "Indietro" button
+returns to the picker. The player is fully
 custom around a hidden `<audio>` element: big play/pause button, chapter
 chips (one per audio chunk, with a spinner while that chunk's TTS is being
 generated and disabled until it is ready; tapping a ready chapter plays it),

@@ -163,3 +163,9 @@ def test_index_page_served(client: TestClient):
     response = client.get("/")
     assert response.status_code == 200
     assert "IA notte" in response.text
+
+
+def test_story_deep_link_serves_spa(client: TestClient):
+    response = client.get("/storia/aaaaaaaaaaaa")
+    assert response.status_code == 200
+    assert "IA notte" in response.text

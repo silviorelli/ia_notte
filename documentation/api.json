@@ -5,6 +5,44 @@
     "version": "0.2.0"
   },
   "paths": {
+    "/storia/{story_id}": {
+      "get": {
+        "summary": "Story Page",
+        "description": "Serve the single-page app for a story deep link.\n\nThe frontend reads the id from the URL and loads the story client-side;\nunknown ids surface as an in-app error.",
+        "operationId": "story_page_storia__story_id__get",
+        "parameters": [
+          {
+            "name": "story_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Story Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/config": {
       "get": {
         "summary": "Get Config",

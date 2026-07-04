@@ -58,6 +58,16 @@ def _public_record(record: dict) -> dict:
     return {**record, "audio_url": f"/api/stories/{record['id']}/audio"}
 
 
+@app.get("/storia/{story_id}")
+def story_page(story_id: str) -> FileResponse:
+    """Serve the single-page app for a story deep link.
+
+    The frontend reads the id from the URL and loads the story client-side;
+    unknown ids surface as an in-app error.
+    """
+    return FileResponse(config.STATIC_DIR / "index.html", media_type="text/html")
+
+
 @app.get("/api/config")
 def get_config() -> dict:
     """Return frontend configuration: preset characters and default speed."""
