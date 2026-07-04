@@ -44,7 +44,9 @@ infrastruttura `infra_relli` con `scripts/deploy-ia-notte.sh`.
 ## Uso
 
 1. Tocca uno dei personaggi preimpostati, oppure scrivi un personaggio a piacere
-   e tocca "Genera storia".
+   e tocca "Genera storia". I personaggi scritti a mano passano prima da un
+   controllo di idoneità per i bambini: se non vanno bene, l'app lo dice con
+   gentilezza e non genera nulla.
 2. Il testo appare dopo pochi secondi; la voce viene preparata a capitoli in
    parallelo e la riproduzione può iniziare dopo circa 20 secondi, mentre il
    resto si completa in sottofondo. Nota: con una chiave sul piano gratuito

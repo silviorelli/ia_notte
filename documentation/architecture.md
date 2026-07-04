@@ -95,7 +95,14 @@ narration are normalized to `status: ready` on read.
 ## Request flow (story creation)
 
 1. `POST /api/stories` with `{"character": "..."}` (validated by Pydantic).
-2. The character is inserted into the prompt template (`build_story_prompt`).
+2. Custom characters (anything not in `PRESET_CHARACTERS`) first pass a
+   moderation call (`GeminiClient.moderate_character`, single-word
+   ADATTO/NON_ADATTO verdict, fail-closed): unsuitable ones are rejected
+   with HTTP 422 and a friendly message before any story or audio is
+   generated. Presets skip the check to save quota. As a second layer,
+   safety blocks raised by Gemini on the story itself
+   (`GeminiBlockedError`) map to the same 422. The character is then
+   inserted into the prompt template (`build_story_prompt`).
 3. `GeminiClient.generate_story` returns the story text (~10s); the story is
    split into chunks, saved as `generating`, and the response returns
    immediately so the parent can already read the text.

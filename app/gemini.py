@@ -34,6 +34,10 @@ class GeminiError(Exception):
     """Raised when a Gemini API call fails after all retries and fallbacks."""
 
 
+class GeminiBlockedError(GeminiError):
+    """Raised when the model blocks a request or response on safety grounds."""
+
+
 @dataclass(frozen=True)
 class GeminiSettings:
     """Connection and model configuration for :class:`GeminiClient`.
@@ -95,17 +99,67 @@ class GeminiClient:
             The generated story text.
 
         Raises:
+            GeminiBlockedError: If safety filters block the request or response.
+            GeminiError: If all models fail or the response contains no text.
+        """
+        return await self._generate_text(prompt)
+
+    async def moderate_character(self, prompt: str) -> bool:
+        """Check whether a proposed character suits a children's story.
+
+        The prompt must ask for a single-word verdict (ADATTO / NON_ADATTO).
+        Anything other than a clear approval — including a safety block or an
+        unexpected verdict — rejects the character (fail closed).
+
+        Args:
+            prompt: Complete moderation prompt for the text model.
+
+        Returns:
+            True if the character is suitable, False otherwise.
+
+        Raises:
+            GeminiError: If all models fail (service problem, not a verdict).
+        """
+        try:
+            verdict = await self._generate_text(prompt)
+        except GeminiBlockedError:
+            return False
+        normalized = verdict.strip().upper()
+        if "NON_ADATTO" in normalized or "NON ADATTO" in normalized:
+            return False
+        if "ADATTO" in normalized:
+            return True
+        logger.error("Unexpected moderation verdict %r, rejecting", verdict[:80])
+        return False
+
+    async def _generate_text(self, prompt: str) -> str:
+        """Run a text generation call and return the concatenated text.
+
+        Args:
+            prompt: Complete prompt for the text model.
+
+        Returns:
+            The generated text.
+
+        Raises:
+            GeminiBlockedError: If safety filters block the request or response.
             GeminiError: If all models fail or the response contains no text.
         """
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         data = await self._generate_content(self._settings.text_models, payload)
-        try:
-            parts = data["candidates"][0]["content"]["parts"]
-            text = "".join(part.get("text", "") for part in parts).strip()
-        except (KeyError, IndexError, TypeError) as exc:
-            raise GeminiError(f"Unexpected text response shape: {exc}") from exc
+        candidates = data.get("candidates") or []
+        if not candidates:
+            reason = (data.get("promptFeedback") or {}).get("blockReason")
+            if reason:
+                raise GeminiBlockedError(f"Prompt blocked by safety filters: {reason}")
+            raise GeminiError("Response contains no candidates")
+        candidate = candidates[0]
+        parts = (candidate.get("content") or {}).get("parts") or []
+        text = "".join(part.get("text", "") for part in parts).strip()
         if not text:
-            raise GeminiError("Model returned an empty story")
+            if candidate.get("finishReason") == "SAFETY":
+                raise GeminiBlockedError("Response blocked by safety filters")
+            raise GeminiError("Model returned empty text")
         return text
 
     async def synthesize_chunk(self, text: str, style_instruction: str) -> tuple[bytes, int]:

@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from app.gemini import GeminiClient, GeminiError, GeminiSettings, split_text
+from app.gemini import GeminiBlockedError, GeminiClient, GeminiError, GeminiSettings, split_text
 from tests.conftest import audio_response, text_response
 
 pytestmark = pytest.mark.anyio
@@ -141,6 +141,51 @@ async def test_generate_story_raises_after_all_retries():
     client = make_client(lambda request: httpx.Response(503, text="unavailable"))
     with pytest.raises(GeminiError, match="All models failed"):
         await client.generate_story("prompt")
+    await client.aclose()
+
+
+async def test_generate_story_raises_blocked_on_prompt_feedback():
+    client = make_client(
+        lambda request: httpx.Response(200, json={"promptFeedback": {"blockReason": "SAFETY"}})
+    )
+    with pytest.raises(GeminiBlockedError):
+        await client.generate_story("prompt")
+    await client.aclose()
+
+
+async def test_generate_story_raises_blocked_on_safety_finish():
+    client = make_client(
+        lambda request: httpx.Response(
+            200,
+            json={"candidates": [{"finishReason": "SAFETY", "content": {"parts": []}}]},
+        )
+    )
+    with pytest.raises(GeminiBlockedError):
+        await client.generate_story("prompt")
+    await client.aclose()
+
+
+@pytest.mark.parametrize(
+    ("verdict", "allowed"),
+    [
+        ("ADATTO", True),
+        ("adatto", True),
+        ("NON_ADATTO", False),
+        ("Non adatto.", False),
+        ("boh, dipende", False),
+    ],
+)
+async def test_moderate_character_verdicts(verdict: str, allowed: bool):
+    client = make_client(lambda request: text_response(verdict))
+    assert await client.moderate_character("prompt di moderazione") is allowed
+    await client.aclose()
+
+
+async def test_moderate_character_rejects_on_safety_block():
+    client = make_client(
+        lambda request: httpx.Response(200, json={"promptFeedback": {"blockReason": "SAFETY"}})
+    )
+    assert await client.moderate_character("prompt di moderazione") is False
     await client.aclose()
 
 

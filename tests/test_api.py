@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import config
-from app.gemini import GeminiError
+from app.gemini import GeminiBlockedError, GeminiError
 from app.main import app
 from app.storage import StoryStore
 
@@ -21,9 +21,15 @@ class FakeGemini:
     def __init__(self, fail_tts: bool = False) -> None:
         self.fail_tts = fail_tts
         self.rate_limited = False
+        self.character_allowed = True
+        self.moderation_calls = 0
 
     def is_rate_limited(self) -> bool:
         return self.rate_limited
+
+    async def moderate_character(self, prompt: str) -> bool:
+        self.moderation_calls += 1
+        return self.character_allowed
 
     async def generate_story(self, prompt: str) -> str:
         return FAKE_STORY
@@ -42,6 +48,13 @@ class FailingTextGemini(FakeGemini):
 
     async def generate_story(self, prompt: str) -> str:
         raise GeminiError("simulated text failure")
+
+
+class BlockedTextGemini(FakeGemini):
+    """Fake whose story generation is blocked by safety filters."""
+
+    async def generate_story(self, prompt: str) -> str:
+        raise GeminiBlockedError("simulated safety block")
 
 
 @pytest.fixture
@@ -133,6 +146,34 @@ def test_generating_story_reports_rate_limit(client: TestClient):
     app.state.gemini.rate_limited = False
     polled = client.get(f"/api/stories/{record['id']}").json()
     assert "rate_limited" not in polled
+
+
+def test_unsuitable_custom_character_rejected(client: TestClient):
+    app.state.gemini.character_allowed = False
+    response = client.post("/api/stories", json={"character": "uno zombie assassino"})
+    assert response.status_code == 422
+    assert "non è adatto" in response.json()["detail"]
+    assert client.get("/api/stories").json() == []
+
+
+def test_preset_character_skips_moderation(client: TestClient):
+    app.state.gemini.character_allowed = False
+    response = client.post("/api/stories", json={"character": "Elsa"})
+    assert response.status_code == 200
+    assert app.state.gemini.moderation_calls == 0
+
+
+def test_custom_character_is_moderated_when_allowed(client: TestClient):
+    response = client.post("/api/stories", json={"character": "un orsetto curioso"})
+    assert response.status_code == 200
+    assert app.state.gemini.moderation_calls == 1
+
+
+def test_safety_blocked_story_returns_422(client: TestClient):
+    app.state.gemini = BlockedTextGemini()
+    response = client.post("/api/stories", json={"character": "un orsetto curioso"})
+    assert response.status_code == 422
+    assert "non è adatto" in response.json()["detail"]
 
 
 def test_text_failure_returns_502(client: TestClient):

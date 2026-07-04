@@ -11,9 +11,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app import config
-from app.gemini import GeminiClient, GeminiError, GeminiSettings, split_text
+from app.gemini import GeminiBlockedError, GeminiClient, GeminiError, GeminiSettings, split_text
 from app.narration import narrate_story
-from app.prompts import TTS_STYLE_INSTRUCTION, build_story_prompt
+from app.prompts import TTS_STYLE_INSTRUCTION, build_moderation_prompt, build_story_prompt
 from app.storage import StoryStore
 
 logging.basicConfig(level=logging.INFO)
@@ -24,6 +24,12 @@ class StoryRequest(BaseModel):
     """Request body for story creation."""
 
     character: str = Field(min_length=1, max_length=80)
+
+
+UNSUITABLE_CHARACTER_MESSAGE = (
+    "Questo personaggio non è adatto a una fiaba della buonanotte per bambini: "
+    "prova a sceglierne un altro"
+)
 
 
 @asynccontextmanager
@@ -81,12 +87,15 @@ def get_config() -> dict:
 async def create_story(payload: StoryRequest, request: Request) -> dict:
     """Generate a story and start its narration in the background.
 
-    Returns as soon as the story text is ready; audio chunks are synthesized
-    concurrently by a background task and exposed via the record's
-    ``chunks_ready`` counter and the part audio endpoint.
+    Custom characters (not in the preset list) go through a moderation call
+    first and are rejected with a friendly message when unsuitable for
+    children. Returns as soon as the story text is ready; audio chunks are
+    synthesized concurrently by a background task and exposed via the
+    record's ``chunks_ready`` counter and the part audio endpoint.
 
     Raises:
-        HTTPException: 503 if the API key is missing, 502 if generation fails.
+        HTTPException: 503 if the API key is missing, 502 if generation
+            fails, 422 if the character is not suitable for children.
     """
     if not config.GEMINI_API_KEY:
         raise HTTPException(
@@ -98,8 +107,17 @@ async def create_story(payload: StoryRequest, request: Request) -> dict:
         raise HTTPException(status_code=422, detail="Il nome del personaggio è vuoto")
     gemini: GeminiClient = request.app.state.gemini
     store: StoryStore = request.app.state.store
+    is_preset = character.lower() in {preset.lower() for preset in config.PRESET_CHARACTERS}
     try:
+        if not is_preset and not await gemini.moderate_character(
+            build_moderation_prompt(character)
+        ):
+            logger.error("Character %r rejected as unsuitable for children", character)
+            raise HTTPException(status_code=422, detail=UNSUITABLE_CHARACTER_MESSAGE)
         story = await gemini.generate_story(build_story_prompt(character))
+    except GeminiBlockedError as exc:
+        logger.error("Safety filters blocked the story for %r: %s", character, exc)
+        raise HTTPException(status_code=422, detail=UNSUITABLE_CHARACTER_MESSAGE) from exc
     except GeminiError as exc:
         logger.error("Story generation failed for %r: %s", character, exc)
         raise HTTPException(
