@@ -43,6 +43,10 @@ TTS_LANGUAGE = os.getenv("GEMINI_TTS_LANGUAGE", "it-IT")
 TTS_CHUNK_PLAN = tuple(int(size) for size in os.getenv("TTS_CHUNK_PLAN", "300,600,1200").split(","))
 TTS_CONCURRENCY = int(os.getenv("TTS_CONCURRENCY", "1"))
 
+# I personaggi scritti a mano finiscono dentro i prompt: un limite corto
+# riduce lo spazio per iniezioni che tentino di alterare le salvaguardie.
+MAX_CUSTOM_CHARACTER_LENGTH = 20
+
 PRESET_CHARACTERS = [
     "Barbie",
     "Minnie",

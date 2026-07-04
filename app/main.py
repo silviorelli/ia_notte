@@ -87,11 +87,13 @@ def get_config() -> dict:
 async def create_story(payload: StoryRequest, request: Request) -> dict:
     """Generate a story and start its narration in the background.
 
-    Custom characters (not in the preset list) go through a moderation call
-    first and are rejected with a friendly message when unsuitable for
-    children. Returns as soon as the story text is ready; audio chunks are
-    synthesized concurrently by a background task and exposed via the
-    record's ``chunks_ready`` counter and the part audio endpoint.
+    Custom characters (not in the preset list) are capped at
+    ``MAX_CUSTOM_CHARACTER_LENGTH`` characters (less room for prompt
+    injection) and go through a moderation call first, rejected with a
+    friendly message when unsuitable for children. Returns as soon as the
+    story text is ready; audio chunks are synthesized concurrently by a
+    background task and exposed via the record's ``chunks_ready`` counter
+    and the part audio endpoint.
 
     Raises:
         HTTPException: 503 if the API key is missing, 502 if generation
@@ -108,6 +110,14 @@ async def create_story(payload: StoryRequest, request: Request) -> dict:
     gemini: GeminiClient = request.app.state.gemini
     store: StoryStore = request.app.state.store
     is_preset = character.lower() in {preset.lower() for preset in config.PRESET_CHARACTERS}
+    if not is_preset and len(character) > config.MAX_CUSTOM_CHARACTER_LENGTH:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Il nome del personaggio è troppo lungo: massimo "
+                f"{config.MAX_CUSTOM_CHARACTER_LENGTH} caratteri"
+            ),
+        )
     try:
         if not is_preset and not await gemini.moderate_character(
             build_moderation_prompt(character)

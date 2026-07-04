@@ -89,7 +89,7 @@
       },
       "post": {
         "summary": "Create Story",
-        "description": "Generate a story and start its narration in the background.\n\nCustom characters (not in the preset list) go through a moderation call\nfirst and are rejected with a friendly message when unsuitable for\nchildren. Returns as soon as the story text is ready; audio chunks are\nsynthesized concurrently by a background task and exposed via the\nrecord's ``chunks_ready`` counter and the part audio endpoint.\n\nRaises:\n    HTTPException: 503 if the API key is missing, 502 if generation\n        fails, 422 if the character is not suitable for children.",
+        "description": "Generate a story and start its narration in the background.\n\nCustom characters (not in the preset list) are capped at\n``MAX_CUSTOM_CHARACTER_LENGTH`` characters (less room for prompt\ninjection) and go through a moderation call first, rejected with a\nfriendly message when unsuitable for children. Returns as soon as the\nstory text is ready; audio chunks are synthesized concurrently by a\nbackground task and exposed via the record's ``chunks_ready`` counter\nand the part audio endpoint.\n\nRaises:\n    HTTPException: 503 if the API key is missing, 502 if generation\n        fails, 422 if the character is not suitable for children.",
         "operationId": "create_story_api_stories_post",
         "requestBody": {
           "content": {

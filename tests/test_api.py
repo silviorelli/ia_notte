@@ -156,6 +156,24 @@ def test_unsuitable_custom_character_rejected(client: TestClient):
     assert client.get("/api/stories").json() == []
 
 
+def test_custom_character_over_20_chars_rejected(client: TestClient):
+    response = client.post("/api/stories", json={"character": "a" * 21})
+    assert response.status_code == 422
+    assert "troppo lungo" in response.json()["detail"]
+    assert app.state.gemini.moderation_calls == 0
+
+    assert client.post("/api/stories", json={"character": "a" * 20}).status_code == 200
+
+
+def test_long_preset_character_skips_length_limit(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(config, "PRESET_CHARACTERS", ["La Fata Turchina Dei Sogni"])
+    response = client.post("/api/stories", json={"character": "La Fata Turchina Dei Sogni"})
+    assert response.status_code == 200
+    assert app.state.gemini.moderation_calls == 0
+
+
 def test_preset_character_skips_moderation(client: TestClient):
     app.state.gemini.character_allowed = False
     response = client.post("/api/stories", json={"character": "Elsa"})
