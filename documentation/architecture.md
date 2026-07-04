@@ -128,11 +128,17 @@ which owns the port opening (security list) and the deploy script
 instance, image built there, `docker compose up -d --build`).
 
 ```
-Internet ──:8082──> host (OCI ARM instance)
-                      └── container ia-notte (uvicorn :8000, non-root user)
-                            ├── .env (synced next to the compose file, never in the image)
-                            └── named volume stories -> /data/stories (JSON+WAV cache)
+Internet ──:443 https://ia-notte.relli.it──> caddy (reverse proxy, auto-TLS)
+                                               │ host:8082 (not exposed publicly)
+                                               ▼
+host (OCI ARM instance) ── container ia-notte (uvicorn :8000, non-root user)
+                             ├── .env (synced next to the compose file, never in the image)
+                             └── named volume stories -> /data/stories (JSON+WAV cache)
 ```
+
+The Caddy proxy and the public DNS/TLS setup belong to `infra_relli`
+(`apps/caddy/`); the host port 8082 is reachable only from the instance
+itself, not from the internet.
 
 - Two-stage image: uv installs locked dependencies into `.venv` in a builder
   stage; the runtime stage is `python:3.13-slim` + venv + `app/` + `static/`.

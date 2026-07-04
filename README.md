@@ -38,7 +38,8 @@ docker compose up -d --build
 L'app è su http://localhost:8082. Le storie restano in un volume Docker
 (`ia_notte_stories`), separato da `data/stories/` usata dall'avvio con uv.
 
-Il deploy in produzione (istanza OCI, porta 8082) è gestito dal repo di
+In produzione l'app è pubblicata su **https://ia-notte.relli.it** (istanza
+OCI, reverse proxy Caddy con TLS automatico); il deploy è gestito dal repo di
 infrastruttura `infra_relli` con `scripts/deploy-ia-notte.sh`.
 
 ## Uso

@@ -108,8 +108,9 @@ class GeminiClient:
         """Check whether a proposed character suits a children's story.
 
         The prompt must ask for a single-word verdict (ADATTO / NON_ADATTO).
-        Anything other than a clear approval — including a safety block or an
-        unexpected verdict — rejects the character (fail closed).
+        Only the exact token ADATTO approves; anything else — including a
+        safety block, prose like "non è adatto" or an unexpected verdict —
+        rejects the character (fail closed).
 
         Args:
             prompt: Complete moderation prompt for the text model.
@@ -121,22 +122,23 @@ class GeminiClient:
             GeminiError: If all models fail (service problem, not a verdict).
         """
         try:
-            verdict = await self._generate_text(prompt)
+            verdict = await self._generate_text(prompt, generation_config={"temperature": 0})
         except GeminiBlockedError:
+            logger.info("Moderation blocked by safety filters: rejecting")
             return False
-        normalized = verdict.strip().upper()
-        if "NON_ADATTO" in normalized or "NON ADATTO" in normalized:
-            return False
-        if "ADATTO" in normalized:
-            return True
-        logger.error("Unexpected moderation verdict %r, rejecting", verdict[:80])
-        return False
+        tokens = re.sub(r"[^A-Z_]+", " ", verdict.upper()).split()
+        allowed = tokens == ["ADATTO"]
+        if not allowed and tokens != ["NON_ADATTO"]:
+            logger.error("Unexpected moderation verdict %r, rejecting", verdict[:80])
+        logger.info("Moderation verdict: %s", "ADATTO" if allowed else "NON_ADATTO")
+        return allowed
 
-    async def _generate_text(self, prompt: str) -> str:
+    async def _generate_text(self, prompt: str, generation_config: dict | None = None) -> str:
         """Run a text generation call and return the concatenated text.
 
         Args:
             prompt: Complete prompt for the text model.
+            generation_config: Optional ``generationConfig`` payload section.
 
         Returns:
             The generated text.
@@ -145,7 +147,9 @@ class GeminiClient:
             GeminiBlockedError: If safety filters block the request or response.
             GeminiError: If all models fail or the response contains no text.
         """
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        payload: dict = {"contents": [{"parts": [{"text": prompt}]}]}
+        if generation_config is not None:
+            payload["generationConfig"] = generation_config
         data = await self._generate_content(self._settings.text_models, payload)
         candidates = data.get("candidates") or []
         if not candidates:

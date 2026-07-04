@@ -69,10 +69,16 @@
 
 - Custom characters are vetted by a dedicated Gemini call before story
   generation (user's explicit choice over a prompt-only safeguard): the
-  moderation prompt asks for a single-word ADATTO/NON_ADATTO verdict, with
-  instructions declared to take priority over anything in the proposal
-  (basic prompt-injection resistance). Any unclear verdict or safety block
-  rejects the character (fail closed). Costs one extra text request and
+  moderation prompt asks for a single-word ADATTO/NON_ADATTO verdict at
+  temperature 0, states prioritized rules (real people tied to pornography,
+  crimes, dictatorships etc. are always unsuitable; "when in doubt, reject")
+  and includes few-shot examples, with instructions declared to take
+  priority over anything in the proposal (basic prompt-injection
+  resistance). Verdict parsing is strict: only the exact token ADATTO
+  approves; prose like "non è adatto", unclear verdicts or safety blocks
+  all reject (fail closed) — a lesson from v1, where a substring check
+  ("ADATTO" in reply) turned "non è adatto" into an approval and let
+  real-person characters slip through. Costs one extra text request and
   ~1-2s per custom story; preset characters skip the check entirely, so
   the most common path (kids tapping presets) spends nothing.
 - Belt and suspenders: `promptFeedback.blockReason` and

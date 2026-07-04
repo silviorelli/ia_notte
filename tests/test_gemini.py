@@ -170,8 +170,11 @@ async def test_generate_story_raises_blocked_on_safety_finish():
     [
         ("ADATTO", True),
         ("adatto", True),
+        ("ADATTO.", True),
         ("NON_ADATTO", False),
         ("Non adatto.", False),
+        ("Non è adatto", False),
+        ("Il personaggio è adatto", False),
         ("boh, dipende", False),
     ],
 )
