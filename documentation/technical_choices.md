@@ -129,9 +129,11 @@
   service): fire-and-forget narration tasks and the 429 rate-limit state are
   in-process. `stop_grace_period: 60s` covers draining multi-MB WAV downloads
   on shutdown; interrupted narrations are healed by `cleanup()` at startup.
-- **No auth on the endpoints** (home-use design) while the port is public:
-  accepted trade-off — an outsider finding the IP could consume Gemini quota.
-  Future mitigation if needed: shared token or reverse proxy with basic auth.
+- **No auth on the endpoints** (home-use design): public access goes only
+  through the Caddy reverse proxy at https://ia-notte.relli.it (HTTPS,
+  auto-TLS; host port 8082 is closed in the OCI security list). Accepted
+  trade-off — an outsider finding the URL could still consume Gemini quota;
+  future mitigation if needed: shared token or basic auth at the proxy.
 
 ## Testing
 
