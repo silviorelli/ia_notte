@@ -40,7 +40,9 @@ Speed writes `audioElement.playbackRate` directly, so changes are instant
 and never require regenerating audio; speed and volume persist in
 `localStorage`. Automatic chapter transitions insert a 1-second pause so
 the hand-off sounds natural. Recently generated stories are listed and can
-be replayed from the local cache without any Gemini call; on completed
+be replayed from the local cache without any Gemini call; the list is
+paginated (`GET /api/stories?page=N`, `RECENT_STORIES_PAGE_SIZE` per page)
+with "Più recenti" / "Meno recenti" controls below it; on completed
 stories the chapter chips seek into the full file using the
 `chapter_offsets` stored in the record.
 

@@ -162,15 +162,16 @@ class StoryStore:
         path = self._directory / f"{story_id}.part{index}.wav"
         return path if path.exists() else None
 
-    def list_recent(self, limit: int) -> list[dict]:
-        """List the most recent stories, newest first.
+    def list_recent(self, page: int, page_size: int) -> tuple[list[dict], int]:
+        """List one page of stories, newest first.
 
         Args:
-            limit: Maximum number of records to return.
+            page: One-based page number; pages past the end are empty.
+            page_size: Maximum number of records per page.
 
         Returns:
-            List of records with ``id``, ``character``, ``created_at``
-            and ``status`` only.
+            The page's records (``id``, ``character``, ``created_at`` and
+            ``status`` only) and the total number of stories.
         """
         records = []
         for path in self._directory.glob("*.json"):
@@ -179,10 +180,11 @@ class StoryStore:
             except (json.JSONDecodeError, OSError) as exc:
                 logger.error("Skipping unreadable story file %s: %s", path.name, exc)
         records.sort(key=lambda record: record.get("created_at", ""), reverse=True)
+        start = (page - 1) * page_size
         return [
             {key: record.get(key) for key in ("id", "character", "created_at", "status")}
-            for record in records[:limit]
-        ]
+            for record in records[start : start + page_size]
+        ], len(records)
 
     def cleanup(self) -> None:
         """Recover state at startup.

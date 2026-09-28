@@ -80,19 +80,27 @@ def test_cleanup_marks_stale_and_removes_leftover_parts(tmp_path: Path):
     assert store.audio_path(done["id"]) is not None
 
 
-def test_list_recent_sorted_limited_with_status(tmp_path: Path):
+def test_list_recent_sorted_paginated_with_status(tmp_path: Path):
     store = StoryStore(tmp_path)
     ids = [store.save(f"Char{i}", f"Storia {i}", chunks_total=1)["id"] for i in range(5)]
-    recent = store.list_recent(limit=3)
-    assert len(recent) == 3
-    assert [r["id"] for r in recent] == list(reversed(ids))[:3]
-    assert all(set(r) == {"id", "character", "created_at", "status"} for r in recent)
+    newest_first = list(reversed(ids))
+
+    first, total = store.list_recent(page=1, page_size=3)
+    second, _ = store.list_recent(page=2, page_size=3)
+    beyond, _ = store.list_recent(page=3, page_size=3)
+
+    assert total == 5
+    assert [r["id"] for r in first] == newest_first[:3]
+    assert [r["id"] for r in second] == newest_first[3:]
+    assert beyond == []
+    assert all(set(r) == {"id", "character", "created_at", "status"} for r in first)
 
 
 def test_list_recent_skips_corrupted_files(tmp_path: Path):
     store = StoryStore(tmp_path)
     store.save("Minnie", "Storia valida.", chunks_total=1)
     (tmp_path / "aaaaaaaaaaab.json").write_text("{ not json", encoding="utf-8")
-    recent = store.list_recent(limit=10)
+    recent, total = store.list_recent(page=1, page_size=10)
+    assert total == 1
     assert len(recent) == 1
     assert recent[0]["character"] == "Minnie"

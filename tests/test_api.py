@@ -111,8 +111,10 @@ def test_create_story_returns_text_then_audio_becomes_ready(client: TestClient):
     assert part.content.startswith(b"RIFF")
 
     listing = client.get("/api/stories").json()
-    assert [entry["id"] for entry in listing] == [record["id"]]
-    assert listing[0]["status"] == "ready"
+    assert listing["page"] == 1
+    assert listing["total_pages"] == 1
+    assert [entry["id"] for entry in listing["stories"]] == [record["id"]]
+    assert listing["stories"][0]["status"] == "ready"
 
 
 def test_story_is_split_into_multiple_chunks(client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -153,7 +155,7 @@ def test_unsuitable_custom_character_rejected(client: TestClient):
     response = client.post("/api/stories", json={"character": "uno zombie assassino"})
     assert response.status_code == 422
     assert "non è adatto" in response.json()["detail"]
-    assert client.get("/api/stories").json() == []
+    assert client.get("/api/stories").json()["stories"] == []
 
 
 def test_custom_character_over_20_chars_rejected(client: TestClient):
@@ -210,6 +212,24 @@ def test_create_story_without_api_key_returns_503(
 ):
     monkeypatch.setattr(config, "GEMINI_API_KEY", "")
     assert client.post("/api/stories", json={"character": "Elsa"}).status_code == 503
+
+
+def test_list_stories_paginates(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(config, "RECENT_STORIES_PAGE_SIZE", 2)
+    ids = [app.state.store.save(f"Char{i}", "Storia.", chunks_total=1)["id"] for i in range(3)]
+
+    first = client.get("/api/stories").json()
+    second = client.get("/api/stories", params={"page": 2}).json()
+
+    assert first["total_pages"] == 2
+    assert [entry["id"] for entry in first["stories"]] == [ids[2], ids[1]]
+    assert second["page"] == 2
+    assert [entry["id"] for entry in second["stories"]] == [ids[0]]
+
+
+def test_list_stories_empty_has_one_page_and_rejects_page_zero(client: TestClient):
+    assert client.get("/api/stories").json() == {"stories": [], "page": 1, "total_pages": 1}
+    assert client.get("/api/stories", params={"page": 0}).status_code == 422
 
 
 def test_get_missing_story_returns_404(client: TestClient):

@@ -2,10 +2,11 @@
 
 import asyncio
 import logging
+import math
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -147,10 +148,17 @@ async def create_story(payload: StoryRequest, request: Request) -> dict:
 
 
 @app.get("/api/stories")
-def list_stories(request: Request) -> list[dict]:
-    """List the most recently generated stories, newest first."""
+def list_stories(request: Request, page: int = Query(1, ge=1)) -> dict:
+    """List one page of generated stories, newest first.
+
+    Returns:
+        ``stories`` for the requested page, the ``page`` number and
+        ``total_pages`` (at least 1, so an empty archive still has one page).
+    """
     store: StoryStore = request.app.state.store
-    return store.list_recent(config.RECENT_STORIES_LIMIT)
+    stories, total = store.list_recent(page, config.RECENT_STORIES_PAGE_SIZE)
+    total_pages = max(1, math.ceil(total / config.RECENT_STORIES_PAGE_SIZE))
+    return {"stories": stories, "page": page, "total_pages": total_pages}
 
 
 @app.get("/api/stories/{story_id}")

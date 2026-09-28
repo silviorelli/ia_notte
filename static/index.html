@@ -51,6 +51,22 @@
       <section id="recent-section" class="mt-10 hidden">
         <h2 class="text-lg text-amber-100/80 mb-3">Storie recenti</h2>
         <div id="recent-list" class="flex flex-col gap-2"></div>
+        <nav id="recent-pager" aria-label="Pagine delle storie recenti"
+             class="hidden mt-4 flex items-center justify-between gap-3">
+          <button id="recent-prev"
+                  class="rounded-xl bg-stone-800 active:bg-stone-700 border border-stone-700
+                         px-4 py-3 text-lg font-semibold text-amber-100
+                         disabled:opacity-40 disabled:active:bg-stone-800">
+            Più recenti
+          </button>
+          <span id="recent-page-label" class="text-base text-amber-100/60"></span>
+          <button id="recent-next"
+                  class="rounded-xl bg-stone-800 active:bg-stone-700 border border-stone-700
+                         px-4 py-3 text-lg font-semibold text-amber-100
+                         disabled:opacity-40 disabled:active:bg-stone-800">
+            Meno recenti
+          </button>
+        </nav>
       </section>
     </section>
 
@@ -169,6 +185,7 @@
       pollTimer: null,
       advanceTimer: null,    // pausa di 1s tra un capitolo e il successivo
       seeking: false,
+      recentPage: 1,
     };
 
     function showView(name) {
@@ -208,10 +225,20 @@
       grid.replaceChildren(...characters.map((c) => bigButton(c, () => generate(c))));
     }
 
-    async function loadRecent() {
+    async function loadRecent(page = state.recentPage) {
       try {
-        const stories = await fetchJson("/api/stories");
+        const data = await fetchJson("/api/stories?page=" + page);
+        // La pagina richiesta può non esistere più (storie cancellate dal disco).
+        if (data.stories.length === 0 && data.page > data.total_pages) {
+          return loadRecent(data.total_pages);
+        }
+        state.recentPage = data.page;
+        const stories = data.stories;
         el("recent-section").classList.toggle("hidden", stories.length === 0);
+        el("recent-pager").classList.toggle("hidden", data.total_pages <= 1);
+        el("recent-prev").disabled = data.page <= 1;
+        el("recent-next").disabled = data.page >= data.total_pages;
+        el("recent-page-label").textContent = "Pagina " + data.page + " di " + data.total_pages;
         const formatter = new Intl.DateTimeFormat("it-IT",
           { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
         el("recent-list").replaceChildren(...stories.map((story) => {
@@ -245,7 +272,7 @@
         });
         setUrl("/storia/" + record.id);
         showStory(record);
-        loadRecent();
+        loadRecent(1);
       } catch (error) {
         el("error-message").textContent = error.message;
         showView("error");
@@ -599,6 +626,8 @@
       el("home-btn").addEventListener("click", goHome);
       el("back-btn").addEventListener("click", goHome);
       el("error-back-btn").addEventListener("click", goHome);
+      el("recent-prev").addEventListener("click", () => loadRecent(state.recentPage - 1));
+      el("recent-next").addEventListener("click", () => loadRecent(state.recentPage + 1));
     }
 
     function showPicker() {
