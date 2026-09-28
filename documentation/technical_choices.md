@@ -18,7 +18,7 @@
   `httpx.MockTransport` (no extra test dependency).
 - **Model fallback lists**: TTS model naming has churned across releases
   (`gemini-2.5-flash-tts`, `gemini-2.5-flash-preview-tts`,
-  `gemini-3.1-flash-tts-preview`), so `GEMINI_TEXT_MODEL` and
+  `gemini-3.1-flash-tts-preview`, `gemini-3.8-flash-lite-tts`), so `GEMINI_TEXT_MODEL` and
   `GEMINI_TTS_MODEL` accept comma-separated lists tried in order; a 404
   moves to the next model. This makes the app resilient to model renames
   without code changes.

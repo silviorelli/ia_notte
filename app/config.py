@@ -32,7 +32,7 @@ TEXT_MODELS = _model_list(
 )
 TTS_MODELS = _model_list(
     "GEMINI_TTS_MODEL",
-    "gemini-3.1-flash-tts-preview,gemini-2.5-flash-preview-tts,gemini-2.5-pro-preview-tts",
+    "gemini-3.8-flash-lite-tts,gemini-2.5-flash-preview-tts,gemini-2.5-pro-preview-tts",
 )
 TTS_VOICE = os.getenv("GEMINI_TTS_VOICE", "Sulafat")
 TTS_LANGUAGE = os.getenv("GEMINI_TTS_LANGUAGE", "it-IT")
