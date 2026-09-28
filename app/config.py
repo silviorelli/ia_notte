@@ -27,12 +27,10 @@ def _model_list(env_var: str, default: str) -> tuple[str, ...]:
     return tuple(m.strip() for m in os.getenv(env_var, default).split(",") if m.strip())
 
 
-TEXT_MODELS = _model_list(
-    "GEMINI_TEXT_MODEL", "gemini-2.5-flash,gemini-flash-latest,gemini-2.5-flash-lite"
-)
+TEXT_MODELS = _model_list("GEMINI_TEXT_MODEL", "gemini-2.5-flash,gemini-flash-latest")
 TTS_MODELS = _model_list(
     "GEMINI_TTS_MODEL",
-    "gemini-3.8-flash-lite-tts,gemini-2.5-flash-preview-tts,gemini-2.5-pro-preview-tts",
+    "gemini-3.8-flash-lite-tts,gemini-3.1-flash-tts-preview",
 )
 TTS_VOICE = os.getenv("GEMINI_TTS_VOICE", "Sulafat")
 TTS_LANGUAGE = os.getenv("GEMINI_TTS_LANGUAGE", "it-IT")
@@ -53,7 +51,7 @@ PRESET_CHARACTERS = [
     "Elsa",
     "Peppa Pig",
     "Bluey",
-    "Topolino",
+    "Robot",
 ]
 
 DEFAULT_PLAYBACK_RATE = 1.0
