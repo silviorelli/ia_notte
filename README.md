@@ -59,7 +59,7 @@ infrastruttura `infra_relli` con `scripts/deploy-ia-notte.sh`.
    barra di avanzamento e i cursori di velocità (0,8x - 1,4x, predefinita 1,0x)
    e volume: agiscono subito e vengono ricordati tra una sessione e l'altra.
 4. "Nuova storia" rigenera con lo stesso personaggio; "Storie recenti" fa riascoltare
-   le storie già generate senza consumare chiamate API. L'elenco mostra 20 storie per
+   le storie già generate senza consumare chiamate API. L'elenco mostra 15 storie per
    pagina, con i pulsanti "Più recenti" / "Meno recenti" in fondo per sfogliarle.
 
 ## Configurazione
