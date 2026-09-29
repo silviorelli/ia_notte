@@ -62,10 +62,19 @@ infrastruttura `infra_relli` con `scripts/deploy-ia-notte.sh`.
    le storie già generate senza consumare chiamate API. L'elenco mostra 15 storie per
    pagina, con i pulsanti "Più recenti" / "Meno recenti" in fondo per sfogliarle.
 
+### Area admin
+
+Su `/admin` (es. https://ia-notte.relli.it/admin) c'è l'elenco di tutte le storie
+con data di creazione, IP di chi l'ha richiesta e un pulsante per cancellarla
+(testo e audio). L'accesso è protetto dalla password `ADMIN_PASSWORD` del file
+`.env`: se non è impostata l'area admin resta disattivata. Le storie create prima
+di questa funzione non hanno l'IP.
+
 ## Configurazione
 
 Tutto in `.env` (vedi [.env.example](.env.example)): modelli di testo e TTS (con
-fallback automatico in ordine di preferenza), voce, lingua e cartella della cache.
+fallback automatico in ordine di preferenza), voce, lingua, cartella della cache e
+password dell'area admin.
 I personaggi preimpostati si cambiano in [app/config.py](app/config.py)
 (`PRESET_CHARACTERS`); il prompt della storia e lo stile di lettura sono in
 [app/prompts.py](app/prompts.py).

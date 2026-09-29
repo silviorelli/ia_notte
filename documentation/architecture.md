@@ -12,6 +12,7 @@ Browser (static/index.html, vanilla JS + Tailwind CDN)
     |  JSON over HTTP (same origin)
     v
 FastAPI app (app/main.py)
+    |-- app/admin.py     password-protected admin API (/api/admin/*)
     |-- app/config.py    env-based configuration (.env via python-dotenv)
     |-- app/prompts.py   story prompt template + TTS style instruction
     |-- app/gemini.py    GeminiClient: text generation + chunk TTS (httpx, async)
@@ -47,6 +48,15 @@ stories the chapter chips seek into the full file using the
 `chapter_offsets` stored in the record.
 
 The frontend never sees the Gemini API key; it only talks to the backend.
+
+### Admin area (`static/admin.html`, `app/admin.py`)
+
+`/admin` serves a separate page that asks for the admin password, then lists
+every story (character, creation date, requester IP, narration status) with
+a delete button. Every `/api/admin/*` route depends on `require_admin`, which
+checks the `X-Admin-Password` header against `ADMIN_PASSWORD` (401 if wrong,
+503 if unset). `DELETE /api/admin/stories/{id}` removes the record and its
+audio files and refuses stories still being narrated (409).
 
 ### Backend (`app/main.py`)
 
@@ -88,8 +98,9 @@ restart as errors and deletes leftover part files of completed stories.
 
 ### Story cache (`app/storage.py`)
 
-Each story is a JSON record (`<id>.json`, with narration `status` and chunk
-counters) plus audio files: `<id>.part<n>.wav` while generating and
+Each story is a JSON record (`<id>.json`, with narration `status`, chunk
+counters and the requester's `client_ip`, which only the admin API returns)
+plus audio files: `<id>.part<n>.wav` while generating and
 `<id>.wav` once complete. Ids are 12-hex-char strings validated by regex on
 every lookup, which also prevents path traversal. Records are written via
 temp-file-then-rename so pollers never read partial JSON. Corrupted JSON

@@ -15,6 +15,7 @@ uv run uvicorn app.main:app --reload                              # dev mode, au
 ```
 
 App: http://localhost:8000 (from a phone: http://<computer-ip>:8000)
+Admin area: http://localhost:8000/admin (requires `ADMIN_PASSWORD` in `.env`)
 Interactive API docs (FastAPI): http://localhost:8000/docs
 
 ## Docker
@@ -51,4 +52,5 @@ print(json.dumps(app.openapi(), indent=2, ensure_ascii=False))" > documentation/
 
 ```bash
 rm -rf data/stories         # clear the story/audio cache (regenerated on demand)
+python3 -c "import secrets; print(secrets.token_urlsafe(24))"   # generate an ADMIN_PASSWORD
 ```

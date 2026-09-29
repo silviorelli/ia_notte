@@ -5,6 +5,147 @@
     "version": "0.2.0"
   },
   "paths": {
+    "/api/admin/login": {
+      "post": {
+        "summary": "Login",
+        "description": "Verify the admin password; 204 means the password is correct.",
+        "operationId": "login_api_admin_login_post",
+        "parameters": [
+          {
+            "name": "x-admin-password",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Password"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/stories": {
+      "get": {
+        "summary": "List All Stories",
+        "description": "List every story, newest first, with creation date and requester IP.",
+        "operationId": "list_all_stories_api_admin_stories_get",
+        "parameters": [
+          {
+            "name": "x-admin-password",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Password"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response List All Stories Api Admin Stories Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/stories/{story_id}": {
+      "delete": {
+        "summary": "Delete Story",
+        "description": "Delete a story and its audio files.\n\nRaises:\n    HTTPException: 404 if the story does not exist, 409 while its\n        narration is still being generated (the background task would\n        otherwise write orphan audio files).",
+        "operationId": "delete_story_api_admin_stories__story_id__delete",
+        "parameters": [
+          {
+            "name": "story_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Story Id"
+            }
+          },
+          {
+            "name": "x-admin-password",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Admin-Password"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/storia/{story_id}": {
       "get": {
         "summary": "Story Page",

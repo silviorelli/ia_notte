@@ -34,13 +34,16 @@ class StoryStore:
         self._directory = directory
         directory.mkdir(parents=True, exist_ok=True)
 
-    def save(self, character: str, story: str, chunks_total: int) -> dict:
+    def save(
+        self, character: str, story: str, chunks_total: int, client_ip: str | None = None
+    ) -> dict:
         """Persist a new story record with narration still in progress.
 
         Args:
             character: Protagonist name used for the story.
             story: Generated story text.
             chunks_total: Number of audio chunks that will be synthesized.
+            client_ip: Address of the requester, shown only in the admin area.
 
         Returns:
             Record dict with ``status`` set to ``"generating"``.
@@ -50,6 +53,7 @@ class StoryStore:
             "character": character,
             "story": story,
             "created_at": datetime.now(UTC).isoformat(),
+            "client_ip": client_ip,
             "status": STATUS_GENERATING,
             "chunks_total": chunks_total,
             "chunks_ready": 0,
@@ -173,6 +177,49 @@ class StoryStore:
             The page's records (``id``, ``character``, ``created_at`` and
             ``status`` only) and the total number of stories.
         """
+        records = self._load_all()
+        start = (page - 1) * page_size
+        return [
+            {key: record.get(key) for key in ("id", "character", "created_at", "status")}
+            for record in records[start : start + page_size]
+        ], len(records)
+
+    def list_all(self) -> list[dict]:
+        """List every story for the admin area, newest first.
+
+        Returns:
+            Records with ``id``, ``character``, ``created_at``, ``status``
+            and ``client_ip`` (``None`` for stories saved before it was recorded).
+        """
+        return [
+            {
+                key: record.get(key)
+                for key in ("id", "character", "created_at", "status", "client_ip")
+            }
+            for record in self._load_all()
+        ]
+
+    def delete(self, story_id: str) -> bool:
+        """Delete a story record and all of its audio files.
+
+        Args:
+            story_id: Identifier returned by :meth:`save`.
+
+        Returns:
+            ``True`` if the story existed and was deleted, ``False`` otherwise.
+        """
+        if not _STORY_ID_PATTERN.match(story_id):
+            return False
+        record_path = self._directory / f"{story_id}.json"
+        if not record_path.exists():
+            return False
+        for path in self._directory.glob(f"{story_id}.*"):
+            path.unlink()
+        logger.info("Story %s deleted", story_id)
+        return True
+
+    def _load_all(self) -> list[dict]:
+        """Load every readable record, newest first, skipping corrupted files."""
         records = []
         for path in self._directory.glob("*.json"):
             try:
@@ -180,11 +227,7 @@ class StoryStore:
             except (json.JSONDecodeError, OSError) as exc:
                 logger.error("Skipping unreadable story file %s: %s", path.name, exc)
         records.sort(key=lambda record: record.get("created_at", ""), reverse=True)
-        start = (page - 1) * page_size
-        return [
-            {key: record.get(key) for key in ("id", "character", "created_at", "status")}
-            for record in records[start : start + page_size]
-        ], len(records)
+        return records
 
     def cleanup(self) -> None:
         """Recover state at startup.

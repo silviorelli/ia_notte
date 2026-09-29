@@ -12,6 +12,8 @@ STATIC_DIR = BASE_DIR / "static"
 STORIES_DIR = Path(os.getenv("STORIES_DIR", str(BASE_DIR / "data" / "stories")))
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+# Password of the /admin area; when empty the admin API is disabled (503).
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
 
 def _model_list(env_var: str, default: str) -> tuple[str, ...]:

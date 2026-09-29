@@ -116,6 +116,33 @@
   preventing path traversal.
 - Request bodies validated with Pydantic (character: 1-80 chars).
 
+## Admin area
+
+- **Single shared password, no user accounts** (same approach as the
+  `60-anni-daniele-gd` project): `ADMIN_PASSWORD` in `.env`, sent by the
+  `/admin` page in the `X-Admin-Password` header on every `/api/admin/*`
+  request. No server-side sessions or tokens, so nothing to store or expire.
+  Compared with `secrets.compare_digest` (no timing leak). The page keeps the
+  password in `sessionStorage`, cleared when the browser closes.
+- **Fail closed**: with `ADMIN_PASSWORD` unset the admin API answers 503 for
+  every request instead of falling back to a default password.
+- **HTTPS is required** for the password to travel safely; in production
+  Caddy terminates TLS. There is no brute-force throttling: acceptable for a
+  personal app with a long random password, mitigable later with Caddy rate
+  limiting.
+- **Requester IP**: saved as `client_ip` in the story record at creation and
+  exposed only by the admin API; `_public_record` strips it from every public
+  response. Caddy (no `trusted_proxies` configured) replaces any
+  client-supplied `X-Forwarded-For` with the real peer address, so the last
+  entry of that header is trusted; without a proxy the socket peer is used.
+  Host port 8082 is not reachable from the internet, so the header cannot be
+  forged from outside. Stories created before this change have no IP.
+  An IP address is personal data: it stays in the record until the story is
+  deleted.
+- **Deletion** removes the record and every audio file of the story. Stories
+  still `generating` are refused with 409: the background narration task
+  would otherwise keep writing part files for a deleted record.
+
 ## Containerization & deployment
 
 - **Two-stage uv build**: builder stage runs `uv sync --frozen --no-dev` with
@@ -145,7 +172,8 @@
   service): fire-and-forget narration tasks and the 429 rate-limit state are
   in-process. `stop_grace_period: 60s` covers draining multi-MB WAV downloads
   on shutdown; interrupted narrations are healed by `cleanup()` at startup.
-- **No auth on the endpoints** (home-use design): public access goes only
+- **No auth on the public endpoints** (home-use design; only `/api/admin/*`
+  is password-protected): public access goes only
   through the Caddy reverse proxy at https://ia-notte.relli.it (HTTPS,
   auto-TLS; host port 8082 is closed in the OCI security list). Accepted
   trade-off — an outsider finding the URL could still consume Gemini quota;

@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app import config
+from app.admin import router as admin_router
 from app.gemini import GeminiBlockedError, GeminiClient, GeminiError, GeminiSettings, split_text
 from app.narration import narrate_story
 from app.prompts import TTS_STYLE_INSTRUCTION, build_moderation_prompt, build_story_prompt
@@ -58,11 +59,29 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="IA notte", version="0.2.0", lifespan=lifespan)
+app.include_router(admin_router)
 
 
 def _public_record(record: dict) -> dict:
-    """Add the audio URL to a stored record before returning it to the client."""
-    return {**record, "audio_url": f"/api/stories/{record['id']}/audio"}
+    """Prepare a stored record for the public client.
+
+    Adds the audio URL and drops ``client_ip``, which only the admin area sees.
+    """
+    public = {key: value for key, value in record.items() if key != "client_ip"}
+    return {**public, "audio_url": f"/api/stories/{record['id']}/audio"}
+
+
+def _client_ip(request: Request) -> str | None:
+    """Return the requester's address.
+
+    In production the app is reachable only through Caddy, which replaces any
+    client-sent ``X-Forwarded-For`` with the real peer address, so the last
+    entry is trustworthy; without a proxy the socket peer is used.
+    """
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.rsplit(",", 1)[-1].strip() or None
+    return request.client.host if request.client else None
 
 
 @app.get("/storia/{story_id}")
@@ -73,6 +92,12 @@ def story_page(story_id: str) -> FileResponse:
     unknown ids surface as an in-app error.
     """
     return FileResponse(config.STATIC_DIR / "index.html", media_type="text/html")
+
+
+@app.get("/admin", include_in_schema=False)
+def admin_page() -> FileResponse:
+    """Serve the admin single-page UI (the API it calls is password-protected)."""
+    return FileResponse(config.STATIC_DIR / "admin.html", media_type="text/html")
 
 
 @app.get("/api/config")
@@ -136,7 +161,7 @@ async def create_story(payload: StoryRequest, request: Request) -> dict:
             detail="La generazione non è riuscita, riprova tra qualche istante",
         ) from exc
     chunks = split_text(story, config.TTS_CHUNK_PLAN)
-    record = store.save(character, story, chunks_total=len(chunks))
+    record = store.save(character, story, len(chunks), _client_ip(request))
     task = asyncio.create_task(
         narrate_story(
             gemini, store, record["id"], chunks, TTS_STYLE_INSTRUCTION, config.TTS_CONCURRENCY

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0c0a09">
+  <meta name="robots" content="noindex">
+  <title>IA notte - Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-stone-950 text-amber-50 min-h-screen antialiased">
+  <main class="max-w-2xl mx-auto px-4 py-6 pb-16">
+
+    <header class="flex items-center justify-between gap-3 mb-8">
+      <div class="flex items-center gap-3">
+        <svg class="w-9 h-9 text-amber-300" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+        <h1 class="text-3xl font-bold text-amber-200 tracking-wide">Admin</h1>
+      </div>
+      <a href="/" class="text-amber-200/80 underline underline-offset-2">Torna all'app</a>
+    </header>
+
+    <section id="login-section">
+      <label for="password" class="block text-lg text-amber-100/80 mb-2">Password amministratore</label>
+      <input id="password" type="password" autocomplete="current-password" enterkeyhint="go"
+             class="w-full rounded-2xl bg-stone-900 border border-stone-700 px-5 py-4 text-xl
+                    text-amber-50 mb-3 focus:outline-none focus:border-amber-600">
+      <button id="login-btn"
+              class="w-full rounded-2xl bg-amber-700 active:bg-amber-600 px-5 py-4 text-xl
+                     font-semibold text-amber-50">
+        Entra
+      </button>
+      <p id="login-message" class="text-red-300 mt-3 min-h-6"></p>
+    </section>
+
+    <section id="panel" class="hidden">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <h2 id="stories-title" class="text-lg text-amber-100/80">Storie</h2>
+        <button id="logout-btn"
+                class="rounded-xl bg-stone-800 active:bg-stone-700 border border-stone-700
+                       px-4 py-2 text-amber-100">
+          Esci
+        </button>
+      </div>
+      <p id="panel-message" class="min-h-6 mb-2"></p>
+      <div id="stories-list" class="flex flex-col gap-2"></div>
+    </section>
+
+  </main>
+
+  <script>
+    "use strict";
+
+    const el = (id) => document.getElementById(id);
+    const PASSWORD_KEY = "ia-notte-admin-password";
+    const STATUS_LABELS = { ready: "pronta", generating: "in preparazione", error: "senza voce" };
+    const dateFormatter = new Intl.DateTimeFormat("it-IT", {
+      day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+    let adminPassword = "";
+    try { adminPassword = sessionStorage.getItem(PASSWORD_KEY) || ""; } catch (error) {
+      console.error("sessionStorage non disponibile:", error);
+    }
+
+    async function api(path, method) {
+      const response = await fetch(path, {
+        method, headers: { "X-Admin-Password": adminPassword },
+      });
+      if (response.status === 401) {
+        logout();
+        throw new Error("Password errata o sessione scaduta");
+      }
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(typeof body.detail === "string" ? body.detail : "Errore " + response.status);
+      }
+      return response.status === 204 ? null : response.json();
+    }
+
+    function setMessage(id, text, ok) {
+      const node = el(id);
+      node.textContent = text || "";
+      node.className = (ok ? "text-emerald-300" : "text-red-300") + " min-h-6 mb-2";
+    }
+
+    function rememberPassword(value) {
+      try {
+        if (value) { sessionStorage.setItem(PASSWORD_KEY, value); }
+        else { sessionStorage.removeItem(PASSWORD_KEY); }
+      } catch (error) {
+        console.error("sessionStorage non disponibile:", error);
+      }
+    }
+
+    function logout() {
+      adminPassword = "";
+      rememberPassword("");
+      el("panel").classList.add("hidden");
+      el("login-section").classList.remove("hidden");
+    }
+
+    async function login(password) {
+      adminPassword = password;
+      await api("/api/admin/login", "POST");
+      rememberPassword(password);
+      el("login-section").classList.add("hidden");
+      el("panel").classList.remove("hidden");
+      el("password").value = "";
+      await loadStories();
+    }
+
+    function storyRow(story) {
+      const row = document.createElement("div");
+      row.className = "rounded-xl bg-stone-900 border border-stone-800 px-4 py-3 " +
+        "flex items-center justify-between gap-3";
+      const info = document.createElement("div");
+      info.className = "min-w-0";
+      const name = document.createElement("a");
+      name.href = "/storia/" + story.id;
+      name.target = "_blank";
+      name.rel = "noopener";
+      name.textContent = story.character;
+      name.className = "block text-lg font-semibold text-amber-100 underline-offset-2 " +
+        "hover:underline truncate";
+      const meta = document.createElement("p");
+      meta.className = "text-sm text-amber-100/50";
+      meta.textContent = dateFormatter.format(new Date(story.created_at)) +
+        " · IP " + (story.client_ip || "non registrato") +
+        " · " + (STATUS_LABELS[story.status] || story.status);
+      info.append(name, meta);
+
+      const remove = document.createElement("button");
+      remove.textContent = "Elimina";
+      remove.className = "shrink-0 rounded-xl bg-red-800 active:bg-red-700 px-4 py-2 " +
+        "font-semibold text-amber-50 disabled:opacity-40";
+      remove.disabled = story.status === "generating";
+      remove.addEventListener("click", async () => {
+        if (!confirm("Eliminare la storia di " + story.character + "? L'operazione non si può annullare.")) {
+          return;
+        }
+        remove.disabled = true;
+        try {
+          await api("/api/admin/stories/" + story.id, "DELETE");
+          setMessage("panel-message", "Storia di " + story.character + " eliminata", true);
+          await loadStories();
+        } catch (error) {
+          remove.disabled = false;
+          setMessage("panel-message", error.message);
+        }
+      });
+      row.append(info, remove);
+      return row;
+    }
+
+    async function loadStories() {
+      const stories = await api("/api/admin/stories", "GET");
+      el("stories-title").textContent = "Storie (" + stories.length + ")";
+      el("stories-list").replaceChildren(...stories.map(storyRow));
+    }
+
+    el("login-btn").addEventListener("click", () => {
+      const password = el("password").value;
+      if (!password) { return; }
+      login(password).catch((error) => setMessage("login-message", error.message));
+    });
+    el("password").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { el("login-btn").click(); }
+    });
+    el("logout-btn").addEventListener("click", logout);
+    if (adminPassword) {
+      login(adminPassword).catch((error) => {
+        console.error("Accesso automatico non riuscito:", error);
+        logout();
+      });
+    }
+  </script>
+</body>
+</html>

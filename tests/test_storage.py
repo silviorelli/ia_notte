@@ -104,3 +104,30 @@ def test_list_recent_skips_corrupted_files(tmp_path: Path):
     assert total == 1
     assert len(recent) == 1
     assert recent[0]["character"] == "Minnie"
+
+
+def test_list_all_includes_client_ip(tmp_path: Path):
+    store = StoryStore(tmp_path)
+    old = store.save("Elsa", "Storia.", chunks_total=1)
+    new = store.save("Bluey", "Storia.", chunks_total=1, client_ip="203.0.113.7")
+
+    listing = store.list_all()
+
+    assert [r["id"] for r in listing] == [new["id"], old["id"]]
+    assert listing[0]["client_ip"] == "203.0.113.7"
+    assert listing[1]["client_ip"] is None
+    assert all(set(r) == {"id", "character", "created_at", "status", "client_ip"} for r in listing)
+
+
+def test_delete_removes_record_and_all_audio_files(tmp_path: Path):
+    store = StoryStore(tmp_path)
+    keep = store.save("Bluey", "Storia.", chunks_total=1)
+    record = store.save("Elsa", "Storia.", chunks_total=2)
+    store.save_part(record["id"], 0, b"RIFFpart0")
+    store.finalize(record["id"], b"RIFFfull", [0.0, 1.0])
+
+    assert store.delete(record["id"]) is True
+
+    assert sorted(path.name for path in tmp_path.iterdir()) == [f"{keep['id']}.json"]
+    assert store.delete(record["id"]) is False
+    assert store.delete("../escape") is False
