@@ -65,7 +65,9 @@ All Gemini calls go through `_generate_content`, which implements:
   unavailable) or exhausted retries move to the next model;
 - fail-fast on non-retryable client errors (e.g. 400/403).
 
-`synthesize_chunk` converts one text chunk to raw 16-bit mono PCM.
+`synthesize_chunk` converts one text chunk to raw 16-bit mono PCM,
+extracting the samples when the model answers with a WAV file (header and
+trailing `C2PA` metadata are dropped).
 `split_text` divides the story according to `TTS_CHUNK_PLAN` (per-chunk
 character budgets, last value repeating), breaking at paragraph/sentence
 boundaries. The first budget is deliberately small (~300 chars, roughly

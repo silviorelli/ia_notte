@@ -17,8 +17,11 @@ def text_response(text: str) -> httpx.Response:
     return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": text}]}}]})
 
 
-def audio_response(pcm: bytes, rate: int = 24000) -> httpx.Response:
-    """Build a Gemini-style TTS response with inline PCM data."""
+def audio_response(pcm: bytes, rate: int = 24000, mime_type: str | None = None) -> httpx.Response:
+    """Build a Gemini-style TTS response with inline audio data.
+
+    ``mime_type`` defaults to the bare-PCM type older TTS models return.
+    """
     return httpx.Response(
         200,
         json={
@@ -28,7 +31,7 @@ def audio_response(pcm: bytes, rate: int = 24000) -> httpx.Response:
                         "parts": [
                             {
                                 "inlineData": {
-                                    "mimeType": f"audio/L16;codec=pcm;rate={rate}",
+                                    "mimeType": mime_type or f"audio/L16;codec=pcm;rate={rate}",
                                     "data": base64.b64encode(pcm).decode("ascii"),
                                 }
                             }

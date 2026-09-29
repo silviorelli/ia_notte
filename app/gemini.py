@@ -192,10 +192,10 @@ class GeminiClient:
         data = await self._generate_content(self._settings.tts_models, payload)
         try:
             inline = data["candidates"][0]["content"]["parts"][0]["inlineData"]
-            pcm = base64.b64decode(inline["data"])
+            audio = base64.b64decode(inline["data"])
         except (KeyError, IndexError, TypeError) as exc:
             raise GeminiError(f"Unexpected TTS response shape: {exc}") from exc
-        return pcm, _parse_sample_rate(inline.get("mimeType", ""))
+        return _decode_audio(audio, inline.get("mimeType", ""))
 
     async def _generate_content(self, models: tuple[str, ...], payload: dict) -> dict:
         """POST to ``generateContent``, with retries and model fallback.
@@ -349,6 +349,38 @@ def split_text(text: str, chunk_plan: tuple[int, ...]) -> list[str]:
                     current = candidate
     flush()
     return chunks or [text]
+
+
+def _decode_audio(audio: bytes, mime_type: str) -> tuple[bytes, int]:
+    """Extract raw PCM and its sample rate from a TTS payload.
+
+    Older TTS models return bare PCM (``audio/L16;rate=...``); newer ones
+    return a complete WAV file whose trailing ``C2PA`` provenance chunk would
+    play as noise if treated as samples. ``wave`` reads only the ``fmt`` and
+    ``data`` chunks, so header and metadata are dropped.
+
+    Args:
+        audio: Decoded ``inlineData`` bytes.
+        mime_type: Mime type string from the API response.
+
+    Returns:
+        Tuple of (raw 16-bit mono PCM bytes, sample rate in Hz).
+
+    Raises:
+        GeminiError: If a WAV payload is malformed or not 16-bit mono.
+    """
+    if not audio.startswith(b"RIFF"):
+        return audio, _parse_sample_rate(mime_type)
+    try:
+        with wave.open(io.BytesIO(audio), "rb") as wav_file:
+            if wav_file.getnchannels() != 1 or wav_file.getsampwidth() != 2:
+                raise GeminiError(
+                    f"Unsupported TTS WAV format: {wav_file.getnchannels()} channels, "
+                    f"{8 * wav_file.getsampwidth()}-bit"
+                )
+            return wav_file.readframes(wav_file.getnframes()), wav_file.getframerate()
+    except (wave.Error, EOFError) as exc:
+        raise GeminiError(f"Malformed TTS WAV payload: {exc}") from exc
 
 
 def _parse_sample_rate(mime_type: str) -> int:

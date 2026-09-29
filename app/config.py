@@ -30,7 +30,7 @@ def _model_list(env_var: str, default: str) -> tuple[str, ...]:
 TEXT_MODELS = _model_list("GEMINI_TEXT_MODEL", "gemini-2.5-flash,gemini-flash-latest")
 TTS_MODELS = _model_list(
     "GEMINI_TTS_MODEL",
-    "gemini-3.8-flash-lite-tts,gemini-3.1-flash-tts-preview",
+    "gemini-3.1-flash-tts-preview,gemini-3.8-flash-tts",
 )
 TTS_VOICE = os.getenv("GEMINI_TTS_VOICE", "Sulafat")
 TTS_LANGUAGE = os.getenv("GEMINI_TTS_LANGUAGE", "it-IT")

@@ -12,9 +12,13 @@ STORY_PROMPT_TEMPLATE = (
     "senza titoli, note o commenti."
 )
 
+# Newer TTS models read the whole prompt aloud unless the direction and the text
+# to speak are in separate labelled sections; the chunk is appended after the header.
 TTS_STYLE_INSTRUCTION = (
+    "### NOTE DI REGIA\n"
     "Leggi questa fiaba della buonanotte in italiano con voce calma, dolce e rassicurante, "
     "a ritmo lento, come un genitore che culla un bambino verso il sonno.\n\n"
+    "### TRASCRIZIONE\n"
 )
 
 

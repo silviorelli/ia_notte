@@ -1,9 +1,18 @@
 """Tests for the Gemini client: retries, fallbacks, chunk synthesis and splitting."""
 
+import struct
+
 import httpx
 import pytest
 
-from app.gemini import GeminiBlockedError, GeminiClient, GeminiError, GeminiSettings, split_text
+from app.gemini import (
+    GeminiBlockedError,
+    GeminiClient,
+    GeminiError,
+    GeminiSettings,
+    pcm_to_wav,
+    split_text,
+)
 from tests.conftest import audio_response, text_response
 
 pytestmark = pytest.mark.anyio
@@ -205,6 +214,31 @@ async def test_synthesize_chunk_returns_pcm_and_rate():
     assert result_pcm == pcm
     assert rate == 16000
     assert b"Leggi piano." in requests_seen[0]
+    await client.aclose()
+
+
+def wav_with_trailing_chunk(pcm: bytes, rate: int) -> bytes:
+    """Build a WAV like newer TTS models return: data followed by a C2PA chunk."""
+    wav = pcm_to_wav(pcm, rate) + b"C2PA" + struct.pack("<I", 6) + b"\xff" * 6
+    return wav[:4] + struct.pack("<I", len(wav) - 8) + wav[8:]
+
+
+async def test_synthesize_chunk_strips_wav_header_and_metadata():
+    pcm = b"\x01\x02" * 100
+    wav = wav_with_trailing_chunk(pcm, 24000)
+    client = make_client(lambda request: audio_response(wav, mime_type="audio/wav"))
+
+    result_pcm, rate = await client.synthesize_chunk("Una piccola storia.", "Leggi piano. ")
+
+    assert result_pcm == pcm
+    assert rate == 24000
+    await client.aclose()
+
+
+async def test_synthesize_chunk_rejects_malformed_wav():
+    client = make_client(lambda request: audio_response(b"RIFF\x00\x00", mime_type="audio/wav"))
+    with pytest.raises(GeminiError):
+        await client.synthesize_chunk("Una piccola storia.", "Leggi piano. ")
     await client.aclose()
 
 

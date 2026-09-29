@@ -18,10 +18,21 @@
   `httpx.MockTransport` (no extra test dependency).
 - **Model fallback lists**: TTS model naming has churned across releases
   (`gemini-2.5-flash-tts`, `gemini-2.5-flash-preview-tts`,
-  `gemini-3.1-flash-tts-preview`, `gemini-3.8-flash-lite-tts`), so `GEMINI_TEXT_MODEL` and
+  `gemini-3.1-flash-tts-preview`, `gemini-3.8-flash-tts`), so `GEMINI_TEXT_MODEL` and
   `GEMINI_TTS_MODEL` accept comma-separated lists tried in order; a 404
   moves to the next model. This makes the app resilient to model renames
   without code changes.
+- **TTS model choice and reading style**: the style instruction and the
+  text to speak go in one prompt, split into `### NOTE DI REGIA` and
+  `### TRASCRIZIONE` sections (the 3.x models reject `systemInstruction`
+  with "Developer instruction is not enabled for this model"). Without the
+  sections, 3.x models read the instruction aloud. With them, a comparison
+  that transcribed each output showed `gemini-3.1-flash-tts-preview`
+  applying the calm style (about 115 words/min against about 145 unstyled)
+  with no added words; `gemini-3.8-flash-tts` read exactly but only slightly
+  slower; `gemini-3.8-flash-lite-tts` sometimes invented extra sentences, so
+  it is not used. Default order: `gemini-3.1-flash-tts-preview`, then
+  `gemini-3.8-flash-tts`.
 - **Retry policy**: 3 attempts per model with exponential backoff (1s, 2s)
   for 5xx/network errors. Non-retryable 4xx fail immediately (a bad key or
   payload will not improve by retrying). Rate limits (429) get their own
@@ -38,9 +49,14 @@
 
 ## Audio format and progressive narration
 
-- Gemini TTS returns raw 16-bit mono PCM at 24 kHz. The backend wraps it in
-  a WAV container with the stdlib `wave` module: zero dependencies and every
-  browser can play and seek it. Trade-off: WAV is large (~2.8 MB/min), fine
+- Gemini TTS returns 16-bit mono PCM at 24 kHz: older models as bare PCM
+  (`audio/L16;rate=...`), 3.x models as a complete WAV file (`audio/wav`)
+  that ends with a `C2PA` content-credentials chunk. `_decode_audio` reads
+  WAV payloads with the stdlib `wave` module, which keeps only the `fmt` and
+  `data` chunks; treating the whole payload as samples played its header
+  and the C2PA chunk as a crackle at every chapter boundary. The backend
+  then wraps the PCM in its own WAV container with `wave`: zero dependencies
+  and every browser can play and seek it. Trade-off: WAV is large (~2.8 MB/min), fine
   on a home network; MP3 would need ffmpeg/lame, not worth the dependency.
 - The TTS models expose only `generateContent` (no `streamGenerateContent`,
   verified via ListModels), and synthesis runs at roughly 2.5x real time
